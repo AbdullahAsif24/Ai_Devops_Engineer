@@ -47,5 +47,5 @@ async def health() -> dict:
         "version": "0.3.0",
         "vercel": "configured" if vercel_configured() else "not_configured",
         "render": "configured" if render_configured() else "not_configured",
-        "deployment_mode": "configuration_only",  # For hackathon: creates configs, requires manual GitHub linking
+        "deployment_mode": "live",
     }

@@ -121,6 +121,7 @@ export interface JobSummary {
   repo_url: string
   status: Stage
   created_at: string
+  deployment?: DeploymentResult
 }
 
 export interface CreateJobRequest {

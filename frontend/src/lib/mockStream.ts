@@ -40,9 +40,9 @@ export function subscribeMockStream(
     { delay: 1500, stage: 'cloning', message: 'Repository cloned (42 files)' },
     { delay: 500, stage: 'analyzing', message: 'Detecting deployment type' },
     { delay: 1600, stage: 'analyzing', message: 'Detected Next.js framework, deploying to Vercel' },
-    { delay: 500, stage: 'deploying', message: 'Configuring Vercel deployment…' },
-    { delay: 2200, stage: 'deploying', message: 'Vercel deployment configured' },
-    { delay: 500, stage: 'done', message: `Vercel deployment configured: ${url}. Link your GitHub repo in Vercel dashboard to complete deployment.` },
+    { delay: 500, stage: 'deploying', message: 'Uploading source to Vercel…' },
+    { delay: 2200, stage: 'deploying', message: 'Waiting for Vercel production build…' },
+    { delay: 500, stage: 'done', message: `Live at ${url}` },
   ]
 
   const timers: ReturnType<typeof setTimeout>[] = []
@@ -76,8 +76,8 @@ export function subscribeMockStream(
               platform: 'vercel',
               deployment_url: url,
               deployment_id: jobId,
-              status: 'created',
-              message: 'Vercel deployment configured. Link your GitHub repo in Vercel dashboard to complete deployment.',
+              status: 'deployed',
+              message: `Successfully deployed to Vercel. Live at ${url}`,
             },
           })
           handlers.onClose?.()

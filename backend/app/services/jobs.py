@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import re
 import uuid
 from typing import Optional
 
@@ -33,7 +35,7 @@ from .agent import generate_dockerfile
 from .cloner import CloneError, InvalidRepoURL, clone_repo
 from .deployment_detector import detect_deployment_type
 from .events import hub
-from .github import InvalidRepoURL as GHInvalidURL
+from .github import InvalidRepoURL as GHInvalidURL, parse_github_url
 from .vercel_deploy import VercelDeployError, deploy_to_vercel
 from .render_deploy import RenderDeployError, deploy_to_render
 
@@ -135,21 +137,26 @@ async def _run_job(job_id: str) -> None:
                     return
 
                 job.result = result
-                await _log(job, JobStage.DONE, "Dockerfile generated successfully")
-                
-                # Deploy to Render
+                dockerfile_path = os.path.join(snapshot.root, "Dockerfile")
+                if not os.path.exists(dockerfile_path):
+                    with open(dockerfile_path, "w", encoding="utf-8") as handle:
+                        handle.write(result.dockerfile_content)
+
                 await _log(job, JobStage.DEPLOYING, "Deploying to Render")
                 try:
+                    _owner, repo = parse_github_url(job.repo_url)
+                    service_name = f"{repo}-{job.job_id[:8]}"
                     deployment_result = await deploy_to_render(
                         repo_path=snapshot.root,
-                        service_name=f"{job.job_id}-service",
+                        service_name=service_name,
                         dockerfile_content=result.dockerfile_content,
+                        repo_url=job.repo_url,
                     )
                     job.deployment = deployment_result
                     await _log(
                         job,
                         JobStage.DONE,
-                        f"Render deployment configured: {deployment_result.deployment_url}. {deployment_result.message}",
+                        f"Live at {deployment_result.deployment_url}",
                     )
                 except RenderDeployError as exc:
                     job.error = f"Render deployment failed: {exc}"
@@ -160,12 +167,12 @@ async def _run_job(job_id: str) -> None:
                 # Static / Vercel-native path: no Dockerfile, deploy straight to Vercel.
                 await _log(job, JobStage.DEPLOYING, f"Deploying {detection.detected_framework} to Vercel")
                 try:
-                    # Generate a Vercel-compatible project name
-                    import re
-                    safe_name = re.sub(r'[^a-zA-Z0-9-_]', '-', job.job_id)
-                    safe_name = safe_name[:52]  # Keep it under 52 chars to leave room for suffix
-                    project_name = f"app-{safe_name}"
-                    
+                    try:
+                        owner, repo = parse_github_url(job.repo_url)
+                        project_name = f"{owner}-{repo}"
+                    except Exception:
+                        project_name = f"app-{re.sub(r'[^a-zA-Z0-9-_]', '-', job.job_id)[:52]}"
+
                     deployment_result = await deploy_to_vercel(
                         repo_path=snapshot.root,
                         project_name=project_name,
@@ -175,7 +182,7 @@ async def _run_job(job_id: str) -> None:
                     await _log(
                         job,
                         JobStage.DONE,
-                        f"Vercel deployment configured: {deployment_result.deployment_url}. {deployment_result.message}",
+                        f"Live at {deployment_result.deployment_url}",
                     )
                 except VercelDeployError as exc:
                     job.error = f"Vercel deployment failed: {exc}"

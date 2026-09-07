@@ -117,7 +117,11 @@ function TabButton({
 }
 
 function ActiveJob({ job, onReset }: { job: Job; onReset: () => void }) {
-  const { events, status, deployedUrl, error } = useJobStream(job.job_id, job.logs ?? [])
+  const { events, status, deployedUrl, error } = useJobStream(
+    job.job_id,
+    job.logs ?? [],
+    job.deployment?.deployment_url ?? null,
+  )
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl">
@@ -135,30 +139,19 @@ function ActiveJob({ job, onReset }: { job: Job; onReset: () => void }) {
 
       <SelfHealCallout events={events} />
 
-      {deployedUrl &&
-        (USE_MOCK ? (
-          // Mock mode: the URL is simulated (nothing was really deployed), so
-          // show it as a labelled, non-clickable banner — no dead-link surprises.
-          <div
-            title="Simulated URL — real deployments go live once the backend is connected"
-            className="mb-4 flex items-center gap-2 rounded-lg bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-300 ring-1 ring-emerald-500/30"
-          >
-            <span className="min-w-0 truncate">🎉 Live at {deployedUrl}</span>
-            <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-200 ring-1 ring-emerald-500/40">
-              Demo
-            </span>
-          </div>
-        ) : (
-          <div
-            title="Configuration created — link your GitHub repo in Vercel/Render dashboard for actual deployment"
-            className="mb-4 flex items-center gap-2 rounded-lg bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-300 ring-1 ring-amber-500/30"
-          >
-            <span className="min-w-0 truncate">⚙️ Configuration: {deployedUrl}</span>
-            <span className="shrink-0 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200 ring-1 ring-amber-500/40">
-              Setup Required
-            </span>
-          </div>
-        ))}
+      {deployedUrl && (
+        <a
+          href={deployedUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mb-4 flex items-center gap-2 rounded-lg bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-300 ring-1 ring-emerald-500/30 hover:bg-emerald-500/20"
+        >
+          <span className="min-w-0 truncate">Live at {deployedUrl}</span>
+          <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-200 ring-1 ring-emerald-500/40">
+            {USE_MOCK ? 'Demo' : 'Open'}
+          </span>
+        </a>
+      )}
 
       {error && (
         <p className="mb-4 rounded-lg bg-rose-500/10 px-4 py-2 text-xs text-rose-300 ring-1 ring-rose-500/30">

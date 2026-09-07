@@ -35,6 +35,7 @@ class Settings:
 
     # Render deployment configuration
     render_api_key: str = os.getenv("RENDER_API_KEY", "")
+    render_owner_id: str = os.getenv("RENDER_OWNER_ID", "")  # Workspace id from Render Settings
 
 
 settings = Settings()

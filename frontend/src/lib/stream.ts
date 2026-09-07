@@ -62,6 +62,16 @@ export function subscribeToJob(jobId: string, handlers: JobStreamHandlers): JobS
     try {
       const job = await getJob(jobId)
       for (const ev of job.logs ?? []) emit(ev)
+      const liveUrl = job.deployment?.deployment_url
+      const alreadyLogged = (job.logs ?? []).some((ev) => liveUrl && ev.message.includes(liveUrl))
+      if (liveUrl && job.status === 'done' && !alreadyLogged) {
+        emit({
+          job_id: job.job_id,
+          stage: 'done',
+          message: `Live at ${liveUrl}`,
+          timestamp: job.created_at,
+        })
+      }
       // Stop polling once terminal.
       if (job.status === 'done' || job.status === 'failed') {
         if (pollTimer) {

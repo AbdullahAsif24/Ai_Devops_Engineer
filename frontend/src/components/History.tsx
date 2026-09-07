@@ -72,6 +72,9 @@ export function History({ onOpen }: { onOpen: (jobId: string) => void }) {
             <p className="truncate text-sm font-medium text-slate-200">{repoName(job.repo_url)}</p>
             <p className="mt-0.5 flex items-center gap-2 truncate text-xs text-slate-500">
               <span className="shrink-0">{formatWhen(job.created_at)}</span>
+              {job.deployment?.deployment_url && (
+                <span className="truncate text-emerald-400">{job.deployment.deployment_url}</span>
+              )}
             </p>
           </div>
           <StatusBadge status={job.status as Stage} />

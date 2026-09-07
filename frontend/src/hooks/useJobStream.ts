@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { JobEvent, Stage } from '../types'
 import { subscribeToJob } from '../lib/stream'
+import { extractHttpUrl, ensureHttps } from '../lib/urls'
 
 export interface JobStreamState {
   /** All events received so far, in arrival order. */
@@ -25,6 +26,7 @@ export interface JobStreamState {
 export function useJobStream(
   jobId: string | null,
   initialEvents: JobEvent[] = [],
+  initialUrl: string | null = null,
 ): JobStreamState {
   const [events, setEvents] = useState<JobEvent[]>(initialEvents)
   const [connected, setConnected] = useState(false)
@@ -68,19 +70,14 @@ export function useJobStream(
   }, [events])
 
   const deployedUrl = useMemo<string | null>(() => {
-    const doneEvent = events.find((e) => e.stage === 'done')
-    if (doneEvent && doneEvent.message.includes('http')) {
-      const urlMatch = doneEvent.message.match(/https?:\/\/[^\s]+/)
-      return urlMatch ? urlMatch[0] : null
+    for (let i = events.length - 1; i >= 0; i--) {
+      const url = extractHttpUrl(events[i].message)
+      if (url && (events[i].stage === 'done' || events[i].stage === 'deploying')) {
+        return ensureHttps(url)
+      }
     }
-    // Also check deploying events for URLs
-    const deployingEvent = events.find((e) => e.stage === 'deploying' && e.message.includes('http'))
-    if (deployingEvent) {
-      const urlMatch = deployingEvent.message.match(/https?:\/\/[^\s]+/)
-      return urlMatch ? urlMatch[0] : null
-    }
-    return null
-  }, [events])
+    return initialUrl ? ensureHttps(initialUrl) : null
+  }, [events, initialUrl])
 
   return { events, status, currentStage, deployedUrl, connected, error }
 }

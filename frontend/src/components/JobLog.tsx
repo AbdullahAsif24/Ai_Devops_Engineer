@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { JobEvent, Stage } from '../types'
 import { STAGE_LABEL } from '../lib/stageMeta'
-import { USE_MOCK } from '../lib/api'
+import { extractHttpUrl } from '../lib/urls'
 
 const STAGE_COLOR: Record<Stage, string> = {
   queued: 'text-slate-400',
@@ -68,7 +68,9 @@ function LogRow({ event }: { event: JobEvent }) {
             {STAGE_LABEL[event.stage]}
           </span>
           <span className="min-w-0 flex-1 text-slate-200">{event.message}</span>
-          <span className="shrink-0 text-[10px] text-slate-600">{event.timestamp.slice(11, 19)}</span>
+          <span className="shrink-0 text-[10px] text-slate-600">
+            {typeof event.timestamp === 'string' ? event.timestamp.slice(11, 19) : ''}
+          </span>
         </div>
         <LogData event={event} />
       </div>
@@ -80,18 +82,18 @@ function LogRow({ event }: { event: JobEvent }) {
 function LogData({ event }: { event: JobEvent }) {
   const { stage, message } = event
 
-  // Show deployment URLs in deploy/done stages
   if ((stage === 'deploying' || stage === 'done') && message.includes('http')) {
-    const urlMatch = message.match(/https?:\/\/[^\s]+/)
-    if (urlMatch) {
-      const url = urlMatch[0]
-      return USE_MOCK ? (
-        <span className="mt-1 inline-block text-[11px] text-emerald-400/80">{url}</span>
-      ) : (
-        <div className="mt-1 flex items-center gap-2">
-          <span className="inline-block text-[11px] text-amber-400">{url}</span>
-          <span className="text-[10px] text-amber-500/80">(Configuration created - link GitHub repo in dashboard)</span>
-        </div>
+    const url = extractHttpUrl(message)
+    if (url) {
+      return (
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1 inline-block text-[11px] text-emerald-400 underline decoration-emerald-500/40 hover:text-emerald-300"
+        >
+          {url}
+        </a>
       )
     }
   }
@@ -100,15 +102,6 @@ function LogData({ event }: { event: JobEvent }) {
   if (stage === 'analyzing' && message.includes('detected')) {
     return (
       <p className="mt-1 rounded-md border border-indigo-500/30 bg-indigo-500/5 px-2 py-1 text-[11px] text-indigo-300">
-        {message}
-      </p>
-    )
-  }
-
-  // Show configuration messages
-  if (stage === 'done' && message.includes('configured')) {
-    return (
-      <p className="mt-1 rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[11px] text-amber-300">
         {message}
       </p>
     )

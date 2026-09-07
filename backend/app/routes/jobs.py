@@ -22,6 +22,9 @@ class CreateJobResponse(BaseModel):
 
     job_id: str
     status: str
+    repo_url: str = ""
+    created_at: str | None = None
+    logs: list = Field(default_factory=list)
 
 
 @router.post("", response_model=CreateJobResponse, status_code=202)
@@ -39,7 +42,13 @@ async def create_job(payload: CreateJobRequest) -> CreateJobResponse:
 
     job = make_job(payload.repo_url)
     await schedule_job(job)
-    return CreateJobResponse(job_id=job.job_id, status=job.status.value)
+    return CreateJobResponse(
+        job_id=job.job_id,
+        status=job.status.value,
+        repo_url=job.repo_url,
+        created_at=job.created_at.isoformat(),
+        logs=[],
+    )
 
 
 @router.get("", response_model=list[JobStatus])
