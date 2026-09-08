@@ -15,7 +15,7 @@ export function AuthControl() {
   if (!configured) {
     return (
       <span className="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-400 ring-1 ring-amber-500/30">
-        Supabase not configured
+        Backend not configured
       </span>
     )
   }
@@ -37,9 +37,8 @@ export function AuthControl() {
     )
   }
 
-  const meta = user.user_metadata ?? {}
-  const name: string = meta.user_name || meta.full_name || user.email || 'User'
-  const avatar: string | undefined = meta.avatar_url
+  const name: string = user.github_username || user.email || 'User'
+  const avatar: string | undefined = user.avatar_url
 
   return (
     <div className="flex items-center gap-3">

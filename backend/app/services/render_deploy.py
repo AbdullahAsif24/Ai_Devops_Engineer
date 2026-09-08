@@ -15,9 +15,9 @@ class RenderDeployError(Exception):
     """Raised when Render deployment fails."""
 
 
-def _headers() -> dict[str, str]:
+def _headers(access_token: str) -> dict[str, str]:
     return {
-        "Authorization": f"Bearer {settings.render_api_key}",
+        "Authorization": f"Bearer {access_token}",
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
@@ -60,12 +60,25 @@ async def deploy_to_render(
     repo_path: str,
     service_name: str,
     dockerfile_content: str,
+    access_token: str,
     env_vars: Optional[dict] = None,
     repo_url: Optional[str] = None,
 ) -> DeploymentResult:
-    """Create a Render web service from GitHub and wait until it is live."""
-    if not settings.render_api_key:
-        raise RenderDeployError("RENDER_API_KEY not configured")
+    """Create a Render web service from GitHub and wait until it is live.
+
+    Args:
+        repo_path: Path to the repository (for local context)
+        service_name: Name for the Render service
+        dockerfile_content: Dockerfile content for the service
+        access_token: User's Render access token
+        env_vars: Optional environment variables to inject
+        repo_url: GitHub repository URL (required for Render)
+
+    Returns:
+        DeploymentResult with deployment URL and status
+    """
+    if not access_token:
+        raise RenderDeployError("Render access token not provided")
     if not repo_url:
         raise RenderDeployError("GitHub repo URL is required for Render deployment")
 
@@ -74,19 +87,20 @@ async def deploy_to_render(
     timeout = httpx.Timeout(30.0, read=60.0)
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        owner_id = await _owner_id(client)
+        owner_id = await _owner_id(client, access_token)
         created = await _create_or_get_service(
             client,
             owner_id=owner_id,
             name=name,
             repo_url=git_repo,
             env_vars=env_vars or {},
+            access_token=access_token,
         )
         service_id = created.get("id")
         if not service_id:
             raise RenderDeployError("Render did not return a service id")
 
-        live = await _wait_until_live(client, str(service_id), created)
+        live = await _wait_until_live(client, str(service_id), created, access_token)
         public_url = extract_service_url(live)
         if not public_url:
             raise RenderDeployError("Render service was created but no public URL was returned")
@@ -100,11 +114,13 @@ async def deploy_to_render(
         )
 
 
-async def _owner_id(client: httpx.AsyncClient) -> str:
+async def _owner_id(client: httpx.AsyncClient, access_token: str) -> str:
     if settings.render_owner_id:
         return settings.render_owner_id
 
-    response = await client.get("https://api.render.com/v1/owners", headers=_headers())
+    response = await client.get(
+        "https://api.render.com/v1/owners", headers=_headers(access_token)
+    )
     if response.status_code != 200:
         raise RenderDeployError(
             f"Failed to list Render owners: {response.status_code} {response.text[:400]}. "
@@ -129,6 +145,7 @@ async def _create_or_get_service(
     name: str,
     repo_url: str,
     env_vars: dict,
+    access_token: str,
 ) -> dict[str, Any]:
     env_payload = [{"key": key, "value": str(value)} for key, value in env_vars.items()]
     body: dict[str, Any] = {
@@ -153,7 +170,7 @@ async def _create_or_get_service(
 
     response = await client.post(
         "https://api.render.com/v1/services",
-        headers=_headers(),
+        headers=_headers(access_token),
         json=body,
     )
     if response.status_code in (200, 201):
@@ -161,7 +178,7 @@ async def _create_or_get_service(
 
     text = response.text
     if response.status_code in (409, 400) and "already exists" in text.lower():
-        existing = await _find_service_by_name(client, name)
+        existing = await _find_service_by_name(client, name, access_token)
         if existing:
             return existing
 
@@ -171,10 +188,12 @@ async def _create_or_get_service(
     )
 
 
-async def _find_service_by_name(client: httpx.AsyncClient, name: str) -> Optional[dict[str, Any]]:
+async def _find_service_by_name(
+    client: httpx.AsyncClient, name: str, access_token: str
+) -> Optional[dict[str, Any]]:
     response = await client.get(
         "https://api.render.com/v1/services",
-        headers=_headers(),
+        headers=_headers(access_token),
         params={"name": name, "limit": 20},
     )
     if response.status_code != 200:
@@ -193,19 +212,20 @@ async def _wait_until_live(
     client: httpx.AsyncClient,
     service_id: str,
     fallback: dict[str, Any],
+    access_token: str,
 ) -> dict[str, Any]:
     latest_service = fallback
     for _ in range(90):
         service_resp = await client.get(
             f"https://api.render.com/v1/services/{service_id}",
-            headers=_headers(),
+            headers=_headers(access_token),
         )
         if service_resp.status_code == 200:
             latest_service = _unwrap(service_resp.json())
 
         deploy_resp = await client.get(
             f"https://api.render.com/v1/services/{service_id}/deploys",
-            headers=_headers(),
+            headers=_headers(access_token),
             params={"limit": 1},
         )
         status = ""
@@ -231,14 +251,14 @@ async def _wait_until_live(
     raise RenderDeployError("Timed out waiting for Render to finish deploying")
 
 
-async def get_deployment_status(service_id: str) -> dict:
-    if not settings.render_api_key:
-        raise RenderDeployError("RENDER_API_KEY not configured")
+async def get_deployment_status(service_id: str, access_token: str) -> dict:
+    if not access_token:
+        raise RenderDeployError("Render access token not provided")
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(
             f"https://api.render.com/v1/services/{service_id}",
-            headers=_headers(),
+            headers=_headers(access_token),
         )
         if response.status_code != 200:
             raise RenderDeployError(f"Failed to get Render service status: {response.text}")

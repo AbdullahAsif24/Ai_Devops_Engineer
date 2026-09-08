@@ -10,6 +10,12 @@ from dotenv import load_dotenv
 # while the same code reads from real env vars in production.
 load_dotenv()
 
+# Debug environment variable loading
+print(f"Config loaded - Vercel Client ID: {os.getenv('VERCEL_CLIENT_ID', 'None')[:10] if os.getenv('VERCEL_CLIENT_ID') else 'None'}...")
+print(f"Supabase URL: {os.getenv('SUPABASE_URL', 'None')[:20] if os.getenv('SUPABASE_URL') else 'None'}...")
+print(f"Vercel API Token: {os.getenv('VERCEL_API_TOKEN', 'None')[:10] if os.getenv('VERCEL_API_TOKEN') else 'None'}...")
+print(f"Render API Token: {os.getenv('RENDER_API_TOKEN', 'None')[:10] if os.getenv('RENDER_API_TOKEN') else 'None'}...")
+
 
 class Settings:
     """Central place for tunable knobs. All values fall back to sane defaults."""
@@ -29,23 +35,30 @@ class Settings:
     # 3 retries (plus the initial generation) is plenty for a hackathon.
     max_heal_retries: int = int(os.getenv("MAX_HEAL_RETRIES", "3"))
 
-    # Vercel deployment configuration
-    vercel_api_token: str = os.getenv("VERCEL_API_TOKEN", "")
-    vercel_team_id: str = os.getenv("VERCEL_TEAM_ID", "")  # Optional: for team deployments
+    # Supabase configuration for authentication and database
+    supabase_url: str = os.getenv("SUPABASE_URL", "")
+    supabase_service_role_key: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
-    # Render deployment configuration
-    render_api_key: str = os.getenv("RENDER_API_KEY", "")
-    render_owner_id: str = os.getenv("RENDER_OWNER_ID", "")  # Workspace id from Render Settings
+    # OAuth callback URLs
+    vercel_oauth_callback_url: str = os.getenv("VERCEL_OAUTH_CALLBACK_URL", "")
+    render_oauth_callback_url: str = os.getenv("RENDER_OAUTH_CALLBACK_URL", "")
+
+    # OAuth configuration
+    vercel_client_id: str = os.getenv("VERCEL_CLIENT_ID", "")
+    vercel_client_secret: str = os.getenv("VERCEL_CLIENT_SECRET", "")
+    render_client_id: str = os.getenv("RENDER_CLIENT_ID", "")
+    render_client_secret: str = os.getenv("RENDER_CLIENT_SECRET", "")
+
+    # Account-level API tokens (fallback for deployments)
+    vercel_api_token: str = os.getenv("VERCEL_API_TOKEN", "")
+    render_api_token: str = os.getenv("RENDER_API_TOKEN", "")
+    render_owner_id: str = os.getenv("RENDER_OWNER_ID", "")
+    vercel_team_id: str = os.getenv("VERCEL_TEAM_ID", "")
 
 
 settings = Settings()
 
 
-def vercel_configured() -> bool:
-    """Check if Vercel deployment is properly configured."""
-    return bool(settings.vercel_api_token)
-
-
-def render_configured() -> bool:
-    """Check if Render deployment is properly configured."""
-    return bool(settings.render_api_key)
+def supabase_configured() -> bool:
+    """Check if Supabase is properly configured."""
+    return bool(settings.supabase_url and settings.supabase_service_role_key)

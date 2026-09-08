@@ -1,4 +1,3 @@
-import { supabase } from './supabase'
 import { mockCreateJob } from './mock'
 import { getMockJob, listMockJobs } from './mockStore'
 import type { CreateJobRequest, Job, JobSummary, DeploymentResult } from '../types'
@@ -17,11 +16,9 @@ export class ApiError extends Error {
   }
 }
 
-/** Attach the Supabase access token as a Bearer header when signed in. */
+/** Attach the stored auth token as a Bearer header when signed in. */
 async function authHeader(): Promise<Record<string, string>> {
-  if (!supabase) return {}
-  const { data } = await supabase.auth.getSession()
-  const token = data.session?.access_token
+  const token = localStorage.getItem('auth_token')
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
@@ -96,4 +93,83 @@ export async function getJobDeployment(jobId: string): Promise<DeploymentResult>
   })
   if (!res.ok) throw new ApiError(res.status, await readError(res))
   return (await res.json()) as DeploymentResult
+}
+
+/** OAuth APIs */
+
+/** GET /oauth/vercel/authorize — get Vercel OAuth authorization URL */
+export async function getVercelAuthUrl(userId: string): Promise<{ auth_url: string; platform: string }> {
+  const res = await fetch(`${API_BASE}/oauth/vercel/authorize?user_id=${userId}`)
+  if (!res.ok) throw new ApiError(res.status, await readError(res))
+  return (await res.json()) as { auth_url: string; platform: string }
+}
+
+/** GET /oauth/render/authorize — get Render OAuth authorization URL */
+export async function getRenderAuthUrl(userId: string): Promise<{ auth_url: string; platform: string }> {
+  const res = await fetch(`${API_BASE}/oauth/render/authorize?user_id=${userId}`)
+  if (!res.ok) throw new ApiError(res.status, await readError(res))
+  return (await res.json()) as { auth_url: string; platform: string }
+}
+
+/** POST /oauth/vercel/callback — handle Vercel OAuth callback */
+export async function vercelCallback(code: string, userId: string): Promise<{ platform: string; access_token: string; expires_at?: string }> {
+  const res = await fetch(`${API_BASE}/oauth/vercel/callback?user_id=${userId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  })
+  if (!res.ok) throw new ApiError(res.status, await readError(res))
+  return (await res.json()) as { platform: string; access_token: string; expires_at?: string }
+}
+
+/** POST /oauth/render/callback — handle Render OAuth callback */
+export async function renderCallback(code: string, userId: string): Promise<{ platform: string; access_token: string; expires_at?: string }> {
+  const res = await fetch(`${API_BASE}/oauth/render/callback?user_id=${userId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  })
+  if (!res.ok) throw new ApiError(res.status, await readError(res))
+  return (await res.json()) as { platform: string; access_token: string; expires_at?: string }
+}
+
+/** GET /oauth/credentials/status — get OAuth credentials status */
+export async function getOAuthCredentialsStatus(): Promise<{ vercel: { connected: boolean; expires_at: string | null }; render: { connected: boolean; expires_at: string | null } }> {
+  const res = await fetch(`${API_BASE}/oauth/credentials/status`, {
+    headers: { ...(await authHeader()) },
+  })
+  if (!res.ok) throw new ApiError(res.status, await readError(res))
+  return (await res.json()) as { vercel: { connected: boolean; expires_at: string | null }; render: { connected: boolean; expires_at: string | null } }
+}
+
+/** DELETE /oauth/credentials/{platform} — delete OAuth credentials */
+export async function deleteOAuthCredentials(platform: 'vercel' | 'render'): Promise<{ message: string }> {
+  const res = await fetch(`${API_BASE}/oauth/credentials/${platform}`, {
+    method: 'DELETE',
+    headers: { ...(await authHeader()) },
+  })
+  if (!res.ok) throw new ApiError(res.status, await readError(res))
+  return (await res.json()) as { message: string }
+}
+
+/** Environment Variable APIs */
+
+/** POST /env-vars — set environment variables for a job */
+export async function setEnvVars(jobId: string, envVars: Record<string, string>): Promise<{ job_id: string; env_vars: Record<string, string>; message: string }> {
+  const res = await fetch(`${API_BASE}/env-vars`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    body: JSON.stringify({ job_id: jobId, env_vars }),
+  })
+  if (!res.ok) throw new ApiError(res.status, await readError(res))
+  return (await res.json()) as { job_id: string; env_vars: Record<string, string>; message: string }
+}
+
+/** GET /env-vars/{job_id} — get environment variables for a job */
+export async function getEnvVars(jobId: string): Promise<Record<string, string>> {
+  const res = await fetch(`${API_BASE}/env-vars/${jobId}`, {
+    headers: { ...(await authHeader()) },
+  })
+  if (!res.ok) throw new ApiError(res.status, await readError(res))
+  return (await res.json()) as Record<string, string>
 }

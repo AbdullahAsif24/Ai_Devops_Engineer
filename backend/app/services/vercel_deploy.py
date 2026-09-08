@@ -40,8 +40,8 @@ _MAX_FILE_BYTES = 8 * 1024 * 1024
 _MAX_FILES = 4000
 
 
-def _auth_headers() -> dict[str, str]:
-    return {"Authorization": f"Bearer {settings.vercel_api_token}"}
+def _auth_headers(access_token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {access_token}"}
 
 
 def _team_params() -> dict[str, str]:
@@ -136,10 +136,23 @@ async def deploy_to_vercel(
     repo_path: str,
     project_name: str,
     framework: str,
+    access_token: str,
+    env_vars: dict[str, str] | None = None,
 ) -> DeploymentResult:
-    """Upload source to Vercel, wait until READY, return the live https URL."""
-    if not settings.vercel_api_token:
-        raise VercelDeployError("VERCEL_API_TOKEN not configured")
+    """Upload source to Vercel, wait until READY, return the live https URL.
+
+    Args:
+        repo_path: Path to the repository to deploy
+        project_name: Name for the Vercel project
+        framework: Detected framework type
+        access_token: User's Vercel access token
+        env_vars: Optional environment variables to inject
+
+    Returns:
+        DeploymentResult with deployment URL and status
+    """
+    if not access_token:
+        raise VercelDeployError("Vercel access token not provided")
 
     name = sanitize_project_name(project_name)
     files = collect_source_files(repo_path)
@@ -148,13 +161,15 @@ async def deploy_to_vercel(
 
     timeout = httpx.Timeout(30.0, read=180.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        file_refs = await _upload_files(client, files)
-        deployment = await _create_deployment(client, name, framework, file_refs)
+        file_refs = await _upload_files(client, files, access_token)
+        deployment = await _create_deployment(
+            client, name, framework, file_refs, access_token, env_vars
+        )
         deployment_id = deployment.get("id") or deployment.get("uid")
         if not deployment_id:
             raise VercelDeployError("Vercel did not return a deployment id")
 
-        ready = await _wait_until_ready(client, str(deployment_id))
+        ready = await _wait_until_ready(client, str(deployment_id), access_token)
         public_url = pick_public_url(ready)
         return DeploymentResult(
             platform="vercel",
@@ -168,6 +183,7 @@ async def deploy_to_vercel(
 async def _upload_files(
     client: httpx.AsyncClient,
     files: list[tuple[str, bytes, str]],
+    access_token: str,
 ) -> list[dict[str, Any]]:
     sem = asyncio.Semaphore(6)
 
@@ -177,7 +193,7 @@ async def _upload_files(
                 "https://api.vercel.com/v2/files",
                 params=_team_params(),
                 headers={
-                    **_auth_headers(),
+                    **_auth_headers(access_token),
                     "Content-Type": "application/octet-stream",
                     "Content-Length": str(len(data)),
                     "x-vercel-digest": sha,
@@ -198,6 +214,8 @@ async def _create_deployment(
     name: str,
     framework: str,
     file_refs: list[dict[str, Any]],
+    access_token: str,
+    env_vars: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     slug = vercel_framework_slug(framework)
     project_settings: dict[str, Any] = {}
@@ -211,6 +229,14 @@ async def _create_deployment(
         "files": file_refs,
         "projectSettings": project_settings,
     }
+
+    # Add environment variables if provided
+    if env_vars:
+        body["env"] = [
+            {"key": key, "value": value, "type": "encrypted"}
+            for key, value in env_vars.items()
+        ]
+
     params = {
         **_team_params(),
         "skipAutoDetectionConfirmation": 1,
@@ -219,7 +245,7 @@ async def _create_deployment(
     response = await client.post(
         "https://api.vercel.com/v13/deployments",
         params=params,
-        headers={**_auth_headers(), "Content-Type": "application/json"},
+        headers={**_auth_headers(access_token), "Content-Type": "application/json"},
         json=body,
     )
     if response.status_code not in (200, 201):
@@ -229,12 +255,14 @@ async def _create_deployment(
     return response.json()
 
 
-async def _wait_until_ready(client: httpx.AsyncClient, deployment_id: str) -> dict[str, Any]:
+async def _wait_until_ready(
+    client: httpx.AsyncClient, deployment_id: str, access_token: str
+) -> dict[str, Any]:
     for _ in range(90):
         response = await client.get(
             f"https://api.vercel.com/v13/deployments/{deployment_id}",
             params=_team_params(),
-            headers=_auth_headers(),
+            headers=_auth_headers(access_token),
         )
         if response.status_code != 200:
             raise VercelDeployError(

@@ -70,9 +70,10 @@ export function useJobStream(
   }, [events])
 
   const deployedUrl = useMemo<string | null>(() => {
+    // Look for URL in any event, prioritizing done/deploying stages
     for (let i = events.length - 1; i >= 0; i--) {
       const url = extractHttpUrl(events[i].message)
-      if (url && (events[i].stage === 'done' || events[i].stage === 'deploying')) {
+      if (url) {
         return ensureHttps(url)
       }
     }

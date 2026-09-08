@@ -126,6 +126,7 @@ export interface JobSummary {
 
 export interface CreateJobRequest {
   repo_url: string
+  env_vars?: Record<string, string>
 }
 
 // ── Streaming ────────────────────────────────────────────────────────────

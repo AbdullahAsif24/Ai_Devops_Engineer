@@ -6,20 +6,28 @@ import { JobLog } from './components/JobLog'
 import { SelfHealCallout } from './components/SelfHealCallout'
 import { StatusBadge } from './components/StatusBadge'
 import { History } from './components/History'
+import { OAuthManager } from './components/OAuthManager'
+import { OAuthCallback } from './components/OAuthCallback'
 import { useAuth } from './auth/AuthContext'
 import { useJobStream } from './hooks/useJobStream'
 import { getJob, USE_MOCK } from './lib/api'
 import type { Job } from './types'
 
-type View = 'new' | 'history'
+type View = 'new' | 'history' | 'settings'
 
 function App() {
   const { user, configured } = useAuth()
   const [view, setView] = useState<View>('new')
   const [activeJob, setActiveJob] = useState<Job | null>(null)
 
-  // Auth is optional for the hackathon demo — keys enable GitHub OAuth when
-  // configured in Supabase, but unsigned users can still submit jobs.
+  // Check if this is an OAuth callback (query params or hash fragment)
+  const urlParams = new URLSearchParams(window.location.search)
+  const hashParams = new URLSearchParams(window.location.hash.substring(1))
+  if (urlParams.has('code') || hashParams.has('access_token') || hashParams.has('error')) {
+    return <OAuthCallback />
+  }
+
+  // Auth is optional for the hackathon demo — backend handles auth
   const canUse = true
   const showAuthHint = configured && !user
 
@@ -58,14 +66,12 @@ function App() {
           <>
             {showAuthHint && (
               <div className="mb-6 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs text-sky-300">
-                Signed out — jobs still work. Sign in with GitHub (top-right) after enabling the
-                GitHub provider in Supabase Auth.
+                Signed out — sign in with GitHub to deploy to your own accounts and access private repos.
               </div>
             )}
             {!configured && (
               <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-300">
-                Supabase keys missing in <code className="text-amber-200">.env.local</code> — auth
-                disabled. Backend URL: <code className="text-amber-200">{import.meta.env.VITE_API_BASE_URL || 'not set'}</code>
+                Backend not configured. Set VITE_API_BASE_URL in .env.local.
               </div>
             )}
 
@@ -76,12 +82,17 @@ function App() {
               <TabButton active={view === 'history'} onClick={() => switchView('history')}>
                 History
               </TabButton>
+              <TabButton active={view === 'settings'} onClick={() => switchView('settings')}>
+                Settings
+              </TabButton>
             </nav>
 
             {activeJob ? (
               <ActiveJob job={activeJob} onReset={() => setActiveJob(null)} />
             ) : view === 'history' ? (
               <History onOpen={openJob} />
+            ) : view === 'settings' ? (
+              <OAuthManager />
             ) : (
               <RepoUrlForm onJobCreated={setActiveJob} />
             )}
