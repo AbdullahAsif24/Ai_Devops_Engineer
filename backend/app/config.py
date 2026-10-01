@@ -23,9 +23,9 @@ class Settings:
     # Groq API key. Ideally set as GROQ_API_KEY in the environment.
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
 
-    # Fast Groq-hosted model. llama-3.3-70b-versatile is a good speed/quality
+    # Fast Groq-hosted model. openai/gpt-oss-120b is a good speed/quality
     # balance for one-shot structured outputs.
-    groq_model: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    groq_model: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
     # Temperature kept low so the model sticks to the template rather than
     # inventing Dockerfile syntax.
@@ -42,18 +42,24 @@ class Settings:
     # OAuth callback URLs
     vercel_oauth_callback_url: str = os.getenv("VERCEL_OAUTH_CALLBACK_URL", "")
     render_oauth_callback_url: str = os.getenv("RENDER_OAUTH_CALLBACK_URL", "")
+    railway_oauth_callback_url: str = os.getenv("RAILWAY_OAUTH_CALLBACK_URL", "")
 
     # OAuth configuration
     vercel_client_id: str = os.getenv("VERCEL_CLIENT_ID", "")
     vercel_client_secret: str = os.getenv("VERCEL_CLIENT_SECRET", "")
     render_client_id: str = os.getenv("RENDER_CLIENT_ID", "")
     render_client_secret: str = os.getenv("RENDER_CLIENT_SECRET", "")
+    railway_client_id: str = os.getenv("RAILWAY_CLIENT_ID", "")
+    railway_client_secret: str = os.getenv("RAILWAY_CLIENT_SECRET", "")
 
     # Account-level API tokens (fallback for deployments)
     vercel_api_token: str = os.getenv("VERCEL_API_TOKEN", "")
     render_api_token: str = os.getenv("RENDER_API_TOKEN", "")
     render_owner_id: str = os.getenv("RENDER_OWNER_ID", "")
     vercel_team_id: str = os.getenv("VERCEL_TEAM_ID", "")
+
+    # GitHub token for committing Dockerfiles to repos (fallback if OAuth fails)
+    github_token: str = os.getenv("GITHUB_TOKEN", "")
 
 
 settings = Settings()

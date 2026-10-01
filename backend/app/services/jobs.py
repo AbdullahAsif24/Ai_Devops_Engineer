@@ -14,6 +14,7 @@ RepoSnapshot (temp dir) and its own local variables. Database holds records.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import re
@@ -38,8 +39,9 @@ from .events import hub
 from .github import InvalidRepoURL as GHInvalidURL, parse_github_url
 from .vercel_deploy import VercelDeployError, deploy_to_vercel
 from .render_deploy import RenderDeployError, deploy_to_render
+from .pulumi_deploy import PulumiDeployError, get_pulumi_deployer
 from .database import get_db_service
-from .oauth import get_vercel_oauth, get_render_oauth
+from .oauth import get_vercel_oauth, get_render_oauth, get_railway_oauth
 from .github_auth import get_user_github_token
 from ..config import settings
 
@@ -196,24 +198,46 @@ async def _run_job(job_id: str, user_id: str) -> None:
                     with open(dockerfile_path, "w", encoding="utf-8") as handle:
                         handle.write(result.dockerfile_content)
 
+                # Commit Dockerfile to GitHub for Render deployment
+                await _log(job_id, JobStage.DEPLOYING, "Committing Dockerfile to GitHub repository")
+                try:
+                    github_token = await get_user_github_token(user_id)
+                    if github_token:
+                        await _commit_dockerfile_to_github(
+                            snapshot.root, job.repo_url, github_token, job_id
+                        )
+                        await _log(job_id, JobStage.DEPLOYING, "Dockerfile committed to GitHub")
+                    else:
+                        await _log(
+                            job_id,
+                            JobStage.DEPLOYING,
+                            "No GitHub token available - Dockerfile not committed to repo. Render deployment may fail.",
+                        )
+                except Exception as e:
+                    await _log(
+                        job_id,
+                        JobStage.DEPLOYING,
+                        f"Failed to commit Dockerfile to GitHub: {str(e)}. Render deployment may fail.",
+                    )
+
                 await _log(job_id, JobStage.DEPLOYING, "Deploying to Render")
                 try:
                     # Try to get user's Render token first
                     render_token = None
                     render_oauth = get_render_oauth()
-                    
+
                     if render_oauth:
                         try:
                             render_token = await render_oauth.get_user_token(user_id)
                             await _log(job_id, JobStage.DEPLOYING, "Using user's Render account")
                         except Exception as e:
                             await _log(job_id, JobStage.DEPLOYING, f"User Render token not available: {str(e)}")
-                    
+
                     # Fallback to account-level token if user token not available
                     if not render_token and settings.render_api_token:
                         render_token = settings.render_api_token
                         await _log(job_id, JobStage.DEPLOYING, "Using account-level Render token")
-                    
+
                     if not render_token:
                         raise RenderDeployError("No Render token available - please connect your account or configure account-level token")
 
@@ -240,6 +264,55 @@ async def _run_job(job_id: str, user_id: str) -> None:
                     )
                 except RenderDeployError as exc:
                     error_msg = f"Render deployment failed: {exc}"
+                    await db.update_job_error(job_id, error_msg)
+                    await _log(job_id, JobStage.FAILED, error_msg)
+                    return
+
+            # Try Railway deployment if Render is not available or user prefers Railway
+            elif detection.deployment_type == DeploymentType.BACKEND:
+                await _log(job_id, JobStage.DEPLOYING, "Deploying to Railway")
+                try:
+                    # Try to get user's Railway token
+                    railway_token = None
+                    railway_oauth = get_railway_oauth()
+
+                    if railway_oauth:
+                        try:
+                            railway_token = await railway_oauth.get_user_token(user_id)
+                            await _log(job_id, JobStage.DEPLOYING, "Using user's Railway account")
+                        except Exception as e:
+                            await _log(job_id, JobStage.DEPLOYING, f"User Railway token not available: {str(e)}")
+
+                    if not railway_token:
+                        # Try to use Pulumi deployer for Railway
+                        pulumi_deployer = get_pulumi_deployer()
+                        await _log(job_id, JobStage.DEPLOYING, "Railway token not available, skipping Railway deployment")
+                        return
+
+                    # Get user's environment variables
+                    from .env_vars import get_env_var_manager
+                    env_var_manager = get_env_var_manager()
+                    env_vars = await env_var_manager.get_env_vars(job_id)
+
+                    _owner, repo = parse_github_url(job.repo_url)
+                    service_name = f"{repo}-{job.job_id[:8]}"
+                    
+                    deployment_result = await pulumi_deployer.deploy(
+                        platform="railway",
+                        repo_path=snapshot.root,
+                        service_name=service_name,
+                        access_token=railway_token,
+                        env_vars=env_vars,
+                        repo_url=job.repo_url,
+                    )
+                    await db.update_job_deployment(job_id, deployment_result.model_dump())
+                    await _log(
+                        job_id,
+                        JobStage.DONE,
+                        f"Live at {deployment_result.deployment_url}",
+                    )
+                except PulumiDeployError as exc:
+                    error_msg = f"Railway deployment failed: {exc}"
                     await db.update_job_error(job_id, error_msg)
                     await _log(job_id, JobStage.FAILED, error_msg)
                     return
@@ -484,6 +557,68 @@ async def _generate_with_healing(
         repo_url=repo_url,
         job_id=job_id,
     )
+
+
+async def _commit_dockerfile_to_github(
+    repo_path: str, repo_url: str, github_token: str, job_id: str
+) -> None:
+    """Commit the generated Dockerfile to the GitHub repository.
+
+    This is necessary for Render deployments, which deploy from the GitHub repo.
+
+    Args:
+        repo_path: Local path to the cloned repository
+        repo_url: GitHub repository URL
+        github_token: GitHub access token for authentication
+        job_id: Job ID for logging
+    """
+    import httpx
+
+    # Read the Dockerfile
+    dockerfile_path = os.path.join(repo_path, "Dockerfile")
+    if not os.path.exists(dockerfile_path):
+        raise FileNotFoundError("Dockerfile not found in repository")
+
+    with open(dockerfile_path, "r", encoding="utf-8") as f:
+        dockerfile_content = f.read()
+
+    # Encode content for GitHub API
+    content_b64 = base64.b64encode(dockerfile_content.encode("utf-8")).decode("utf-8")
+
+    # Parse repo URL to get owner and repo name
+    try:
+        owner, repo = parse_github_url(repo_url)
+    except Exception as e:
+        raise ValueError(f"Failed to parse GitHub URL: {e}")
+
+    # Check if Dockerfile already exists in the repo
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/Dockerfile"
+    headers = {
+        "Authorization": f"token {github_token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+    async with httpx.AsyncClient() as client:
+        # Check if file exists
+        response = await client.get(api_url, headers=headers)
+        sha = None
+        if response.status_code == 200:
+            # File exists, get its SHA for update
+            sha = response.json().get("sha")
+        elif response.status_code != 404:
+            raise Exception(f"Failed to check Dockerfile existence: {response.status_code} {response.text}")
+
+        # Create or update the file
+        data = {
+            "message": f"Add Dockerfile for deployment [job: {job_id[:8]}]",
+            "content": content_b64,
+        }
+        if sha:
+            data["sha"] = sha
+
+        response = await client.put(api_url, headers=headers, json=data)
+        if response.status_code not in (200, 201):
+            raise Exception(f"Failed to commit Dockerfile: {response.status_code} {response.text}")
 
 
 async def get_job(job_id: str) -> JobStatus:

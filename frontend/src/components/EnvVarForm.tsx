@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 
 interface EnvVar {
   key: string
@@ -15,6 +15,7 @@ export function EnvVarForm({ onSubmit, initialVars = {} }: EnvVarFormProps) {
     Object.entries(initialVars).map(([key, value]) => ({ key, value }))
   )
   const [errors, setErrors] = useState<string[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const addEnvVar = () => {
     setEnvVars([...envVars, { key: '', value: '' }])
@@ -28,6 +29,62 @@ export function EnvVarForm({ onSubmit, initialVars = {} }: EnvVarFormProps) {
     const updated = [...envVars]
     updated[index][field] = value
     setEnvVars(updated)
+  }
+
+  const parseEnvFile = (content: string): Record<string, string> => {
+    const envVars: Record<string, string> = {}
+    const lines = content.split('\n')
+
+    lines.forEach((line) => {
+      // Remove comments and trim whitespace
+      const trimmedLine = line.split('#')[0].trim()
+      
+      // Skip empty lines
+      if (!trimmedLine) return
+
+      // Parse KEY=VALUE format
+      const match = trimmedLine.match(/^([^=]+)=(.*)$/)
+      if (match) {
+        const key = match[1].trim()
+        const value = match[2].trim()
+        
+        // Remove quotes if present
+        const unquotedValue = value.replace(/^["']|["']$/g, '')
+        
+        if (key) {
+          envVars[key] = unquotedValue
+        }
+      }
+    })
+
+    return envVars
+  }
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const content = event.target?.result as string
+      if (content) {
+        const parsedVars = parseEnvFile(content)
+        const newEnvVars = Object.entries(parsedVars).map(([key, value]) => ({ key, value }))
+        
+        // Merge with existing env vars, giving precedence to uploaded ones
+        const existingKeys = new Set(envVars.map(v => v.key))
+        const filteredExisting = envVars.filter(v => !parsedVars[v.key])
+        
+        setEnvVars([...filteredExisting, ...newEnvVars])
+        setErrors([])
+      }
+    }
+    reader.readAsText(file)
+    
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -126,16 +183,34 @@ export function EnvVarForm({ onSubmit, initialVars = {} }: EnvVarFormProps) {
           </div>
         ))}
 
-        <button
-          type="button"
-          onClick={addEnvVar}
-          className="flex items-center gap-2 text-sm text-indigo-400 transition hover:text-indigo-300"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Add Environment Variable
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={addEnvVar}
+            className="flex items-center gap-2 text-sm text-indigo-400 transition hover:text-indigo-300"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Add Environment Variable
+          </button>
+
+          <span className="text-slate-600">or</span>
+
+          <label className="flex items-center gap-2 text-sm text-indigo-400 transition hover:text-indigo-300 cursor-pointer">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            Upload .env file
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".env,.txt"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+          </label>
+        </div>
 
         <div className="flex gap-2 pt-2">
           <button

@@ -7,10 +7,11 @@ from ..config import settings, supabase_configured
 
 
 async def get_user_github_token(user_id: str) -> str | None:
-    """Get GitHub token from Supabase user metadata.
+    """Get GitHub token from Supabase user metadata or environment variable.
 
     When users authenticate with GitHub OAuth via Supabase, their GitHub access token
     is stored in the user's metadata. This function retrieves it.
+    Falls back to GITHUB_TOKEN environment variable if OAuth fails.
 
     Args:
         user_id: The Supabase user ID
@@ -18,6 +19,10 @@ async def get_user_github_token(user_id: str) -> str | None:
     Returns:
         The GitHub access token if available, None otherwise
     """
+    # First try to get from environment variable (fallback)
+    if settings.github_token:
+        return settings.github_token
+
     if not supabase_configured():
         return None
 

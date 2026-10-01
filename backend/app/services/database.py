@@ -55,26 +55,13 @@ class DatabaseService:
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("platform", platform)
-                .single()
+                .limit(1)
                 .execute()
             )
-            if result.data:
-                return result.data
+            if result.data and len(result.data) > 0:
+                return result.data[0]
         except Exception as e:
-            # If single() fails, try without it
-            print(f"Database get_user_credential error with single(): {e}")
-            try:
-                result = (
-                    self.client.table("user_credentials")
-                    .select("*")
-                    .eq("user_id", user_id)
-                    .eq("platform", platform)
-                    .execute()
-                )
-                if result.data and len(result.data) > 0:
-                    return result.data[0]
-            except Exception as e2:
-                print(f"Database get_user_credential error: {e2}")
+            print(f"Database get_user_credential error: {e}")
         return None
 
     async def delete_user_credential(self, user_id: str, platform: str) -> None:
@@ -116,22 +103,12 @@ class DatabaseService:
         """Get a job by job_id."""
         try:
             result = (
-                self.client.table("jobs").select("*").eq("job_id", job_id).single().execute()
+                self.client.table("jobs").select("*").eq("job_id", job_id).limit(1).execute()
             )
-            if result.data:
-                return result.data
+            if result.data and len(result.data) > 0:
+                return result.data[0]
         except Exception as e:
-            # If single() fails, try without it
-            print(f"Database get_job error with single(): {e}")
-            try:
-                result = (
-                    self.client.table("jobs").select("*").eq("job_id", job_id).execute()
-                )
-                if result.data and len(result.data) > 0:
-                    return result.data[0]
-            except Exception as e2:
-                print(f"Database get_job error: {e2}")
-        return None
+            print(f"Database get_job error: {e}")
         return None
 
     async def update_job(self, job_id: str, updates: dict[str, Any]) -> None:

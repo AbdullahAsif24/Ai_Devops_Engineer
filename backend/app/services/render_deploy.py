@@ -168,18 +168,26 @@ async def _create_or_get_service(
     if env_payload:
         body["envVars"] = env_payload
 
+    print(f"Creating Render service: {name} from repo: {repo_url}")
+    print(f"Environment variables: {len(env_payload)} vars")
+
     response = await client.post(
         "https://api.render.com/v1/services",
         headers=_headers(access_token),
         json=body,
     )
     if response.status_code in (200, 201):
+        print(f"Render service created successfully: {name}")
         return _unwrap(response.json())
 
     text = response.text
+    print(f"Render service creation failed: {response.status_code} - {text[:500]}")
+    
     if response.status_code in (409, 400) and "already exists" in text.lower():
+        print(f"Service already exists, trying to find existing service: {name}")
         existing = await _find_service_by_name(client, name, access_token)
         if existing:
+            print(f"Found existing service: {name}")
             return existing
 
     raise RenderDeployError(
@@ -229,6 +237,7 @@ async def _wait_until_live(
             params={"limit": 1},
         )
         status = ""
+        error_details = ""
         if deploy_resp.status_code == 200:
             items = deploy_resp.json()
             if isinstance(items, list) and items:
@@ -236,12 +245,22 @@ async def _wait_until_live(
                 deploy = first.get("deploy") if isinstance(first, dict) else first
                 if isinstance(deploy, dict):
                     status = str(deploy.get("status") or "")
+                    # Capture error details if available
+                    if deploy.get("error"):
+                        error_details = str(deploy.get("error"))
+                    if deploy.get("errorMessage"):
+                        error_details = str(deploy.get("errorMessage"))
+                    if deploy.get("failureDetails"):
+                        error_details = str(deploy.get("failureDetails"))
 
         status_l = status.lower()
         if status_l == "live":
             return latest_service
         if status_l in {"build_failed", "update_failed", "canceled", "deactivated"}:
-            raise RenderDeployError(f"Render deploy ended with status '{status}'")
+            error_msg = f"Render deploy ended with status '{status}'"
+            if error_details:
+                error_msg += f". Details: {error_details}"
+            raise RenderDeployError(error_msg)
         await asyncio.sleep(6)
 
     url = extract_service_url(latest_service)

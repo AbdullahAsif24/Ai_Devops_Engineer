@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 interface OAuthStatus {
   vercel: { connected: boolean; expires_at: string | null }
   render: { connected: boolean; expires_at: string | null }
+  railway: { connected: boolean; expires_at: string | null }
 }
 
 export function OAuthManager() {
@@ -80,7 +81,7 @@ export function OAuthManager() {
 
       console.log('User object in OAuthManager:', user)
       console.log('User ID:', user.id)
-      
+
       // Use user_id if available, otherwise use a fallback
       const userId = user.id || user.user_id || 'default_user'
       console.log('Using user_id for OAuth:', userId)
@@ -101,7 +102,37 @@ export function OAuthManager() {
     }
   }
 
-  const disconnect = async (platform: 'vercel' | 'render') => {
+  const connectRailway = async () => {
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        throw new Error('No authentication token found')
+      }
+
+      console.log('User object in OAuthManager:', user)
+      console.log('User ID:', user.id)
+
+      // Use user_id if available, otherwise use a fallback
+      const userId = user.id || user.user_id || 'default_user'
+      console.log('Using user_id for OAuth:', userId)
+
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL}/oauth/railway/authorize?user_id=${userId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      )
+      if (!response.ok) throw new Error('Failed to get Railway auth URL')
+      const data = await response.json()
+      window.location.href = data.auth_url
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to connect Railway')
+    }
+  }
+
+  const disconnect = async (platform: 'vercel' | 'render' | 'railway') => {
     try {
       const token = localStorage.getItem('auth_token')
       if (!token) {
@@ -195,6 +226,38 @@ export function OAuthManager() {
               type="button"
               onClick={connectRender}
               className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700"
+            >
+              Connect
+            </button>
+          )}
+        </div>
+
+        {/* Railway */}
+        <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-600">
+              <span className="text-white font-bold">🚂</span>
+            </div>
+            <div>
+              <p className="font-medium text-white">Railway</p>
+              <p className="text-xs text-slate-400">
+                {loading ? 'Loading...' : status?.railway.connected ? 'Connected' : 'Not connected'}
+              </p>
+            </div>
+          </div>
+          {status?.railway.connected ? (
+            <button
+              type="button"
+              onClick={() => disconnect('railway')}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-rose-400 transition hover:bg-rose-500/10"
+            >
+              Disconnect
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={connectRailway}
+              className="rounded-lg bg-purple-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-purple-700"
             >
               Connect
             </button>

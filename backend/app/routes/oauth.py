@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from ..auth import get_user_id
-from ..services.oauth import VercelOAuth, RenderOAuth, get_vercel_oauth, get_render_oauth
+from ..services.oauth import VercelOAuth, RenderOAuth, RailwayOAuth, get_vercel_oauth, get_render_oauth, get_railway_oauth
 
 router = APIRouter(prefix="/oauth", tags=["oauth"])
 
@@ -133,6 +133,54 @@ async def render_callback(
         raise HTTPException(status_code=400, detail=f"Render OAuth failed: {str(e)}")
 
 
+@router.get("/railway/authorize")
+async def get_railway_auth_url(
+    user_id: str = Query(..., description="User ID for state parameter"),
+) -> OAuthUrlResponse:
+    """Get Railway OAuth authorization URL.
+
+    Users should visit this URL to authorize the application to access their Railway account.
+    """
+    railway_oauth = get_railway_oauth()
+    if not railway_oauth:
+        raise HTTPException(
+            status_code=503, detail="Railway OAuth not configured on server"
+        )
+
+    auth_url = railway_oauth.get_auth_url(state=user_id)
+    return OAuthUrlResponse(auth_url=auth_url, platform="railway")
+
+
+@router.get("/railway/callback")
+async def railway_callback(
+    code: str = Query(..., description="Authorization code"),
+    state: str = Query(None, description="State parameter")
+) -> OAuthTokenResponse:
+    """Handle Railway OAuth callback.
+
+    Exchange the authorization code for an access token and store it in the database.
+    """
+    railway_oauth = get_railway_oauth()
+    if not railway_oauth:
+        raise HTTPException(
+            status_code=503, detail="Railway OAuth not configured on server"
+        )
+
+    try:
+        # Use state as user_id if provided, otherwise use a default
+        user_id = state if state else "default_user"
+        token_data = await railway_oauth.exchange_code_for_token(
+            code=code, user_id=user_id
+        )
+        return OAuthTokenResponse(
+            platform="railway",
+            access_token=token_data["access_token"],
+            expires_at=token_data.get("expires_at"),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Railway OAuth failed: {str(e)}")
+
+
 @router.delete("/credentials/{platform}")
 async def delete_credentials(
     platform: str, user_id: str = Depends(get_user_id)
@@ -140,15 +188,15 @@ async def delete_credentials(
     """Delete stored OAuth credentials for a platform.
 
     Args:
-        platform: Either 'vercel' or 'render'
+        platform: Either 'vercel', 'render', or 'railway'
         user_id: The authenticated user's ID
 
     Returns:
         Success message
     """
-    if platform not in ["vercel", "render"]:
+    if platform not in ["vercel", "render", "railway"]:
         raise HTTPException(
-            status_code=400, detail="Platform must be either 'vercel' or 'render'"
+            status_code=400, detail="Platform must be either 'vercel', 'render', or 'railway'"
         )
 
     from ..services.database import get_db_service
@@ -183,6 +231,13 @@ async def get_credentials_status(user_id: str = Depends(get_user_id)) -> dict[st
     status["render"] = {
         "connected": render_creds is not None,
         "expires_at": render_creds.get("token_expires_at") if render_creds else None,
+    }
+
+    # Check Railway credentials
+    railway_creds = await db.get_user_credential(user_id, "railway")
+    status["railway"] = {
+        "connected": railway_creds is not None,
+        "expires_at": railway_creds.get("token_expires_at") if railway_creds else None,
     }
 
     return status
