@@ -159,7 +159,7 @@ export async function setEnvVars(jobId: string, envVars: Record<string, string>)
   const res = await fetch(`${API_BASE}/env-vars`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
-    body: JSON.stringify({ job_id: jobId, env_vars }),
+    body: JSON.stringify({ job_id: jobId, env_vars: envVars }),
   })
   if (!res.ok) throw new ApiError(res.status, await readError(res))
   return (await res.json()) as { job_id: string; env_vars: Record<string, string>; message: string }

@@ -38,7 +38,7 @@ export function AuthControl() {
   }
 
   const name: string = user.github_username || user.email || 'User'
-  const avatar: string | undefined = user.avatar_url
+  const avatar: string | undefined = user.avatar_url || undefined
 
   return (
     <div className="flex items-center gap-3">

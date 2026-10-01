@@ -72,7 +72,6 @@ export function EnvVarForm({ onSubmit, initialVars = {} }: EnvVarFormProps) {
         const newEnvVars = Object.entries(parsedVars).map(([key, value]) => ({ key, value }))
         
         // Merge with existing env vars, giving precedence to uploaded ones
-        const existingKeys = new Set(envVars.map(v => v.key))
         const filteredExisting = envVars.filter(v => !parsedVars[v.key])
         
         setEnvVars([...filteredExisting, ...newEnvVars])

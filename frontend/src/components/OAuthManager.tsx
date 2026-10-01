@@ -50,9 +50,8 @@ export function OAuthManager() {
 
       console.log('User object in OAuthManager:', user)
       console.log('User ID:', user.id)
-      
-      // Use user_id if available, otherwise use a fallback
-      const userId = user.id || user.user_id || 'test_user'
+
+      const userId = user.id || 'test_user'
       console.log('Using user_id for OAuth:', userId)
 
       const response = await fetch(
@@ -82,8 +81,7 @@ export function OAuthManager() {
       console.log('User object in OAuthManager:', user)
       console.log('User ID:', user.id)
 
-      // Use user_id if available, otherwise use a fallback
-      const userId = user.id || user.user_id || 'default_user'
+      const userId = user.id || 'default_user'
       console.log('Using user_id for OAuth:', userId)
 
       const response = await fetch(
@@ -112,8 +110,7 @@ export function OAuthManager() {
       console.log('User object in OAuthManager:', user)
       console.log('User ID:', user.id)
 
-      // Use user_id if available, otherwise use a fallback
-      const userId = user.id || user.user_id || 'default_user'
+      const userId = user.id || 'default_user'
       console.log('Using user_id for OAuth:', userId)
 
       const response = await fetch(
