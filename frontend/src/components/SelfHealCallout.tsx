@@ -1,6 +1,7 @@
 import type { JobEvent } from '../types'
+import { BoltIcon, CheckIcon, Spinner, XIcon } from './icons'
 
-type DeployPhase = 'detecting' | 'generating' | 'deploying' | 'done' | 'failed'
+type DeployPhase = 'cloning' | 'detecting' | 'generating' | 'deploying' | 'done' | 'failed'
 
 interface DeployInfo {
   phase: DeployPhase
@@ -16,23 +17,26 @@ function deriveDeploy(events: JobEvent[]): DeployInfo | null {
   const lastEvent = events[events.length - 1]
   const analyzingEvent = events.find((e) => e.stage === 'analyzing')
   const deployingEvent = events.find((e) => e.stage === 'deploying')
+  // The analyzing event that reports the framework marks the end of detection.
+  const detectedEvent = events.find((e) => e.stage === 'analyzing' && e.message.includes('Detected'))
 
   let phase: DeployPhase
   if (lastEvent.stage === 'done') phase = 'done'
   else if (lastEvent.stage === 'failed') phase = 'failed'
   else if (deployingEvent) phase = 'deploying'
-  else if (analyzingEvent) phase = 'generating'
+  else if (detectedEvent) phase = 'generating'
+  else if (analyzingEvent) phase = 'detecting'
+  else if (events.some((e) => e.stage === 'cloning')) phase = 'cloning'
   else phase = 'detecting'
 
-  // Extract framework from analyzing event
-  const framework = analyzingEvent?.message.includes('Detected') 
-    ? analyzingEvent.message.match(/Detected (.+?) framework/)?.[1] ?? null
-    : null
+  const framework = detectedEvent?.message.match(/Detected (.+?) framework/)?.[1] ?? null
 
   // Determine platform from message
-  const platform = lastEvent.message.includes('Vercel') ? 'Vercel' 
-    : lastEvent.message.includes('Render') ? 'Render' 
-    : null
+  const platform = lastEvent.message.includes('Vercel')
+    ? 'Vercel'
+    : lastEvent.message.includes('Render')
+      ? 'Render'
+      : null
 
   return {
     phase,
@@ -43,22 +47,34 @@ function deriveDeploy(events: JobEvent[]): DeployInfo | null {
 }
 
 const CARD: Record<DeployPhase, string> = {
-  detecting: 'border-indigo-500/40 bg-indigo-500/5',
-  generating: 'border-purple-500/40 bg-purple-500/5',
-  deploying: 'border-emerald-500/40 bg-emerald-500/5',
-  done: 'border-emerald-500/40 bg-emerald-500/5',
-  failed: 'border-rose-500/40 bg-rose-500/5',
+  cloning: 'border-accent/30 bg-accent-soft',
+  detecting: 'border-accent/30 bg-accent-soft',
+  generating: 'border-accent/30 bg-accent-soft',
+  deploying: 'border-accent/30 bg-accent-soft',
+  done: 'border-ok/30 bg-ok-soft',
+  failed: 'border-bad/30 bg-bad-soft',
 }
 
 const BADGE: Record<DeployPhase, string> = {
-  detecting: 'bg-indigo-500/15 text-indigo-300 ring-indigo-500/30',
-  generating: 'bg-purple-500/15 text-purple-300 ring-purple-500/30',
-  deploying: 'bg-emerald-500/15 text-emerald-300 ring-emerald-500/30',
-  done: 'bg-emerald-500/15 text-emerald-300 ring-emerald-500/30',
-  failed: 'bg-rose-500/15 text-rose-300 ring-rose-500/30',
+  cloning: 'bg-accent/15 text-accent-text ring-accent/30',
+  detecting: 'bg-accent/15 text-accent-text ring-accent/30',
+  generating: 'bg-accent/15 text-accent-text ring-accent/30',
+  deploying: 'bg-accent/15 text-accent-text ring-accent/30',
+  done: 'bg-ok/15 text-ok-text ring-ok/30',
+  failed: 'bg-bad/15 text-bad-text ring-bad/30',
+}
+
+const TEXT: Record<DeployPhase, string> = {
+  cloning: 'text-accent-text',
+  detecting: 'text-accent-text',
+  generating: 'text-accent-text',
+  deploying: 'text-accent-text',
+  done: 'text-ok-text',
+  failed: 'text-bad-text',
 }
 
 const TITLE: Record<DeployPhase, string> = {
+  cloning: 'Cloning repository',
   detecting: 'Analyzing repository',
   generating: 'AI generating deployment',
   deploying: 'Configuring deployment',
@@ -67,16 +83,9 @@ const TITLE: Record<DeployPhase, string> = {
 }
 
 function PhaseIcon({ phase }: { phase: DeployPhase }) {
-  if (phase === 'done') return <span className="text-lg">✓</span>
-  if (phase === 'failed') return <span className="text-lg">✗</span>
-  if (phase === 'deploying') return <span className="animate-pulse text-lg">🚀</span>
-  return <span className="animate-pulse text-lg">⚡</span>
-}
-
-function Spinner({ tone = 'indigo' }: { tone?: 'indigo' | 'emerald' }) {
-  const color =
-    tone === 'emerald' ? 'border-emerald-400/30 border-t-emerald-400' : 'border-indigo-400/30 border-t-indigo-400'
-  return <span className={`inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 ${color}`} />
+  if (phase === 'done') return <CheckIcon className="animate-pop h-[18px] w-[18px]" strokeWidth={2.6} />
+  if (phase === 'failed') return <XIcon className="animate-pop h-[18px] w-[18px]" strokeWidth={2.6} />
+  return <BoltIcon className="h-[18px] w-[18px] animate-pulse" />
 }
 
 /**
@@ -87,72 +96,66 @@ export function SelfHealCallout({ events }: { events: JobEvent[] }) {
   const info = deriveDeploy(events)
   if (!info) return null
   const { phase, framework, platform, message } = info
-  const busy = phase === 'detecting' || phase === 'generating' || phase === 'deploying'
+  const busy = phase === 'cloning' || phase === 'detecting' || phase === 'generating' || phase === 'deploying'
 
   const subtitle =
-    phase === 'detecting'
-      ? 'AI is analyzing the repository to detect the technology stack...'
+    phase === 'cloning'
+      ? 'Fetching the repository files.'
+      : phase === 'detecting'
+      ? 'AI is analyzing the repository to detect the technology stack.'
       : phase === 'generating'
-        ? `Detected ${framework || 'unknown'}. AI is generating optimized deployment configuration...`
+        ? `${framework ? `Detected ${framework}. ` : ''}AI is generating optimized deployment configuration.`
         : phase === 'deploying'
-          ? `Configuring deployment for ${platform || 'cloud'}...`
+          ? `Configuring deployment for ${platform || 'cloud'}.`
           : phase === 'done'
-            ? `Deployment configuration created for ${platform || 'cloud'}!`
+            ? `Deployment configuration created for ${platform || 'cloud'}.`
             : 'Deployment encountered an error.'
 
   return (
-    <div className={`animate-heal-in mb-4 rounded-xl border p-4 transition-colors duration-500 ${CARD[phase]}`}>
-      {/* Header */}
+    <div
+      role="status"
+      className={`animate-heal-in mb-4 rounded-xl border p-4 transition-colors duration-500 ${CARD[phase]}`}
+    >
       <div className="flex items-center gap-3">
-        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ring-1 ${BADGE[phase]}`}>
+        <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ring-1 ring-inset ${BADGE[phase]}`}>
           <PhaseIcon phase={phase} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-white">{TITLE[phase]}</h3>
-            {busy && <Spinner tone={phase === 'deploying' ? 'emerald' : 'indigo'} />}
-          </div>
-          <p className="mt-0.5 text-xs text-slate-400">{subtitle}</p>
+          <h3 className="text-sm font-semibold">{TITLE[phase]}</h3>
+          <p className="mt-0.5 text-xs text-muted">{subtitle}</p>
         </div>
         {platform && (
-          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${BADGE[phase]}`}>
+          <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${BADGE[phase]}`}>
             {platform}
           </span>
         )}
       </div>
 
-      {/* Framework detection info */}
       {framework && (
-        <div className="mt-3 rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-2.5">
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-indigo-300">
-            <span>⚡</span> Framework detected
-          </div>
-          <p className="mt-1 text-xs text-indigo-200">{framework}</p>
+        <div className="mt-3 flex items-center gap-2 rounded-lg bg-surface/70 px-3 py-2 text-xs ring-1 ring-inset ring-line">
+          <span className="text-muted">Framework</span>
+          <span className="font-semibold">{framework}</span>
         </div>
       )}
 
-      {/* Current status message */}
-      {message && phase !== 'done' && (
-        <div className="mt-3 flex items-center gap-2 text-xs text-slate-300">
-          {busy && <Spinner tone={phase === 'deploying' ? 'emerald' : 'indigo'} />}
-          <span className={busy ? 'animate-pulse' : ''}>{message}</span>
+      {message && phase !== 'done' && phase !== 'failed' && (
+        <div className="mt-3 flex items-center gap-2 text-xs text-muted">
+          {busy && <Spinner className={`h-3.5 w-3.5 shrink-0 ${TEXT[phase]}`} />}
+          <span className="min-w-0 break-words">{message}</span>
         </div>
       )}
 
-      {/* Success message */}
       {phase === 'done' && (
-        <div className="mt-3 flex items-center gap-2 text-xs font-medium text-emerald-300">
-          <span>✓</span> {message}
+        <div className={`mt-3 flex items-center gap-2 text-xs font-medium ${TEXT[phase]}`}>
+          <CheckIcon className="h-3.5 w-3.5 shrink-0" strokeWidth={2.6} />
+          <span className="min-w-0 break-words">{message}</span>
         </div>
       )}
 
-      {/* Error message */}
       {phase === 'failed' && (
-        <div className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/5 p-2.5">
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-rose-300">
-            <span>✗</span> Error
-          </div>
-          <p className="mt-1 text-xs text-rose-200">{message}</p>
+        <div className="mt-3 rounded-lg bg-surface/70 p-3 ring-1 ring-inset ring-bad/30">
+          <p className={`text-xs font-semibold ${TEXT[phase]}`}>What went wrong</p>
+          <p className="mt-1 break-words text-xs text-muted">{message}</p>
         </div>
       )}
     </div>

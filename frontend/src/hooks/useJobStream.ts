@@ -70,12 +70,14 @@ export function useJobStream(
   }, [events])
 
   const deployedUrl = useMemo<string | null>(() => {
-    // Look for URL in any event, prioritizing done/deploying stages
+    // Only the deploying/done stages can carry the live URL. Earlier events
+    // (e.g. "Cloning https://github.com/…") also contain URLs and must not be
+    // mistaken for the deployment, or the UI shows "Live now" while still cloning.
     for (let i = events.length - 1; i >= 0; i--) {
-      const url = extractHttpUrl(events[i].message)
-      if (url) {
-        return ensureHttps(url)
-      }
+      const { stage, message } = events[i]
+      if (stage !== 'done' && stage !== 'deploying') continue
+      const url = extractHttpUrl(message)
+      if (url) return ensureHttps(url)
     }
     return initialUrl ? ensureHttps(initialUrl) : null
   }, [events, initialUrl])

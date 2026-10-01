@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { handleOAuthCallback } from '../auth/AuthContext'
+import { renderCallback, vercelCallback } from '../lib/api'
+import { AlertIcon, BrandMark, Spinner } from './icons'
 
 export function OAuthCallback() {
   const [loading, setLoading] = useState(true)
@@ -15,21 +17,25 @@ export function OAuthCallback() {
         const error = hashParams.get('error')
         const errorDescription = hashParams.get('error_description')
 
-        console.log('OAuth callback hash params:', { 
-          accessToken: !!accessToken, 
-          refreshToken: !!refreshToken, 
-          error, 
-          errorDescription,
-          allParams: Object.fromEntries(hashParams.entries())
-        })
-
         if (error) {
           throw new Error(errorDescription || `OAuth error: ${error}`)
         }
 
+        // Returning from Vercel or Render after "Connect": hand the code to the backend.
+        const pendingRaw = sessionStorage.getItem('oauth_pending')
+        const platformCode = new URLSearchParams(window.location.search).get('code')
+        if (pendingRaw && platformCode) {
+          sessionStorage.removeItem('oauth_pending')
+          const pending = JSON.parse(pendingRaw) as { platform: 'vercel' | 'render'; userId: string }
+          if (pending.platform === 'vercel') await vercelCallback(platformCode, pending.userId)
+          else await renderCallback(platformCode, pending.userId)
+          sessionStorage.setItem('open_view', 'settings')
+          window.location.href = '/'
+          return
+        }
+
         // If we have tokens directly from Supabase, use them
         if (accessToken) {
-          console.log('Storing access token from Supabase hash')
           localStorage.setItem('auth_token', accessToken)
           if (refreshToken) {
             localStorage.setItem('refresh_token', refreshToken)
@@ -43,22 +49,19 @@ export function OAuthCallback() {
         const urlParams = new URLSearchParams(window.location.search)
         const queryCode = urlParams.get('code')
         const queryAccessToken = urlParams.get('access_token')
-        
+
         if (queryAccessToken) {
-          console.log('Storing access token from query params')
           localStorage.setItem('auth_token', queryAccessToken)
           window.location.href = '/'
           return
         }
 
         if (queryCode) {
-          console.log('Using authorization code flow from query params')
           await handleOAuthCallback(queryCode)
           window.location.href = '/'
           return
         }
 
-        console.error('No authorization data found in URL hash or query params')
         throw new Error('No authorization data found in URL')
       } catch (err) {
         console.error('OAuth callback error:', err)
@@ -72,10 +75,12 @@ export function OAuthCallback() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950">
-        <div className="text-center">
-          <div className="mb-4 h-8 w-8 animate-spin rounded-full border-4 border-indigo-500 border-t-transparent"></div>
-          <p className="text-slate-400">Completing sign in...</p>
+      <div className="grid min-h-dvh place-items-center bg-bg px-6">
+        <div role="status" className="flex flex-col items-center text-center">
+          <BrandMark className="h-11 w-11" />
+          <Spinner className="mt-6 h-6 w-6 text-accent" />
+          <p className="mt-3 text-sm font-medium">Completing sign in</p>
+          <p className="mt-1 text-sm text-muted">You’ll be redirected in a moment.</p>
         </div>
       </div>
     )
@@ -83,15 +88,19 @@ export function OAuthCallback() {
 
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950">
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-8 text-center">
-          <h2 className="text-xl font-semibold text-rose-300">Authentication Failed</h2>
-          <p className="mt-2 text-slate-400">{error}</p>
+      <div className="grid min-h-dvh place-items-center bg-bg px-6">
+        <div role="alert" className="card view-in w-full max-w-md p-8 text-center">
+          <span className="mx-auto grid h-11 w-11 place-items-center rounded-full bg-bad-soft text-bad-text">
+            <AlertIcon className="h-5 w-5" />
+          </span>
+          <h2 className="mt-4 text-lg font-semibold">Sign in failed</h2>
+          <p className="mt-1 break-words text-sm text-muted">{error}</p>
           <button
+            type="button"
             onClick={() => (window.location.href = '/')}
-            className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700"
+            className="btn btn-primary mt-6"
           >
-            Return to Home
+            Back to home
           </button>
         </div>
       </div>

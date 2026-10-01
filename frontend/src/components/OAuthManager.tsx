@@ -1,23 +1,71 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState, type ComponentType, type SVGProps } from 'react'
 import { useAuth } from '../auth/AuthContext'
+import { AlertIcon, GitHubIcon, ServerIcon, VercelIcon } from './icons'
+
+type Platform = 'vercel' | 'render'
 
 interface OAuthStatus {
   vercel: { connected: boolean; expires_at: string | null }
   render: { connected: boolean; expires_at: string | null }
-  railway: { connected: boolean; expires_at: string | null }
 }
 
+type AuthUser = NonNullable<ReturnType<typeof useAuth>['user']>
+
+const PLATFORMS: {
+  key: Platform
+  name: string
+  blurb: string
+  Icon: ComponentType<SVGProps<SVGSVGElement>>
+  tile: string
+}[] = [
+  { key: 'vercel', name: 'Vercel', blurb: 'Hosts frontends and static sites.', Icon: VercelIcon, tile: 'bg-ink text-bg' },
+  { key: 'render', name: 'Render', blurb: 'Hosts backends and APIs.', Icon: ServerIcon, tile: 'bg-accent text-on-accent' },
+]
+
+/** Deployment platform connections. Needs a signed-in user. */
 export function OAuthManager() {
   const { user, configured } = useAuth()
+
+  if (!configured) {
+    return (
+      <div className="card flex flex-col items-center px-6 py-14 text-center">
+        <span className="grid h-11 w-11 place-items-center rounded-xl bg-raised text-muted">
+          <ServerIcon width={20} height={20} />
+        </span>
+        <h2 className="mt-4 text-base font-semibold">Connect a backend to link accounts</h2>
+        <p className="mt-1 max-w-sm text-sm text-muted">
+          Vercel and Render connections are stored by the backend. Set{' '}
+          <code className="rounded bg-raised px-1 py-0.5 font-mono text-xs text-ink">VITE_API_BASE_URL</code> in{' '}
+          <code className="rounded bg-raised px-1 py-0.5 font-mono text-xs text-ink">.env.local</code> and restart the
+          dev server.
+        </p>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className="card flex flex-col items-center px-6 py-14 text-center">
+        <span className="grid h-11 w-11 place-items-center rounded-xl bg-raised text-muted">
+          <GitHubIcon width={20} height={20} />
+        </span>
+        <h2 className="mt-4 text-base font-semibold">Sign in to connect your accounts</h2>
+        <p className="mt-1 max-w-sm text-sm text-muted">
+          Use Sign in at the top right. Then you can connect Vercel and Render so deployments go to your own accounts.
+        </p>
+      </div>
+    )
+  }
+
+  return <PlatformConnections user={user} />
+}
+
+function PlatformConnections({ user }: { user: AuthUser }) {
   const [status, setStatus] = useState<OAuthStatus | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  if (!configured || !user) {
-    return null
-  }
-
-  const loadStatus = async () => {
+  const loadStatus = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -39,97 +87,44 @@ export function OAuthManager() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  const connectVercel = async () => {
+  // Load status on mount
+  useEffect(() => {
+    loadStatus()
+  }, [loadStatus])
+
+  const connect = async (platform: Platform) => {
     try {
       const token = localStorage.getItem('auth_token')
       if (!token) {
         throw new Error('No authentication token found')
       }
 
-      console.log('User object in OAuthManager:', user)
-      console.log('User ID:', user.id)
-
-      const userId = user.id || 'test_user'
-      console.log('Using user_id for OAuth:', userId)
+      // Use the user's id if available, otherwise use a fallback
+      const userId = user.id || (platform === 'vercel' ? 'test_user' : 'default_user')
 
       const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/oauth/vercel/authorize?user_id=${userId}`,
+        `${import.meta.env.VITE_API_BASE_URL}/oauth/${platform}/authorize?user_id=${userId}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
           },
-        }
+        },
       )
-      if (!response.ok) throw new Error('Failed to get Vercel auth URL')
-      const data = await response.json()
-      console.log('Vercel auth URL:', data.auth_url)
-      window.location.href = data.auth_url
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to connect Vercel')
-    }
-  }
-
-  const connectRender = async () => {
-    try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        throw new Error('No authentication token found')
+      if (!response.ok) {
+        throw new Error(`Failed to get ${platform === 'vercel' ? 'Vercel' : 'Render'} auth URL`)
       }
-
-      console.log('User object in OAuthManager:', user)
-      console.log('User ID:', user.id)
-
-      const userId = user.id || 'default_user'
-      console.log('Using user_id for OAuth:', userId)
-
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/oauth/render/authorize?user_id=${userId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      )
-      if (!response.ok) throw new Error('Failed to get Render auth URL')
       const data = await response.json()
+      // The platform sends the person back with ?code=...; the callback page needs to know which one.
+      sessionStorage.setItem('oauth_pending', JSON.stringify({ platform, userId }))
       window.location.href = data.auth_url
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to connect Render')
+      setError(e instanceof Error ? e.message : `Failed to connect ${platform}`)
     }
   }
 
-  const connectRailway = async () => {
-    try {
-      const token = localStorage.getItem('auth_token')
-      if (!token) {
-        throw new Error('No authentication token found')
-      }
-
-      console.log('User object in OAuthManager:', user)
-      console.log('User ID:', user.id)
-
-      const userId = user.id || 'default_user'
-      console.log('Using user_id for OAuth:', userId)
-
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/oauth/railway/authorize?user_id=${userId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      )
-      if (!response.ok) throw new Error('Failed to get Railway auth URL')
-      const data = await response.json()
-      window.location.href = data.auth_url
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to connect Railway')
-    }
-  }
-
-  const disconnect = async (platform: 'vercel' | 'render' | 'railway') => {
+  const disconnect = async (platform: Platform) => {
     try {
       const token = localStorage.getItem('auth_token')
       if (!token) {
@@ -149,117 +144,69 @@ export function OAuthManager() {
     }
   }
 
-  // Load status on mount
-  useEffect(() => {
-    loadStatus()
-  }, [])
-
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-      <h3 className="text-lg font-semibold text-white mb-4">Deployment Platforms</h3>
+    <div>
+      <div className="mb-5">
+        <h2 className="text-2xl font-bold tracking-tight">Deployment platforms</h2>
+        <p className="mt-1 max-w-xl text-sm text-muted">
+          Connect your own accounts and deployments will appear there instead of a shared one.
+        </p>
+      </div>
 
       {error && (
-        <div className="mb-4 rounded-lg bg-rose-500/10 px-4 py-2 text-xs text-rose-300 ring-1 ring-rose-500/30">
-          {error}
+        <div role="alert" className="mb-4 flex items-start gap-2.5 rounded-lg bg-bad-soft p-3 text-sm text-bad-text ring-1 ring-inset ring-bad/30">
+          <AlertIcon className="mt-0.5 h-4 w-4 shrink-0" />
+          <span className="min-w-0 break-words">{error}</span>
         </div>
       )}
 
-      <div className="space-y-4">
-        {/* Vercel */}
-        <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-black">
-              <span className="text-white font-bold">▲</span>
-            </div>
-            <div>
-              <p className="font-medium text-white">Vercel</p>
-              <p className="text-xs text-slate-400">
-                {loading ? 'Loading...' : status?.vercel.connected ? 'Connected' : 'Not connected'}
-              </p>
-            </div>
-          </div>
-          {status?.vercel.connected ? (
-            <button
-              type="button"
-              onClick={() => disconnect('vercel')}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-rose-400 transition hover:bg-rose-500/10"
-            >
-              Disconnect
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={connectVercel}
-              className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black transition hover:bg-slate-200"
-            >
-              Connect
-            </button>
-          )}
-        </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {PLATFORMS.map(({ key, name, blurb, Icon, tile }) => {
+          const connected = status?.[key].connected ?? false
+          return (
+            <div key={key} className="card card-hover spot flex flex-col p-5">
+              <div className="flex items-start justify-between gap-3">
+                <span className={`grid h-11 w-11 place-items-center rounded-xl ${tile}`}>
+                  <Icon width={20} height={20} />
+                </span>
+                {loading && !status ? (
+                  <span className="skeleton h-6 w-24 rounded-full" />
+                ) : (
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition-colors duration-300 ${
+                      connected
+                        ? 'bg-ok-soft text-ok-text ring-ok/30'
+                        : 'bg-raised text-muted ring-line-strong'
+                    }`}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-ok' : 'bg-faint'}`} />
+                    {connected ? 'Connected' : 'Not connected'}
+                  </span>
+                )}
+              </div>
 
-        {/* Render */}
-        <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600">
-              <span className="text-white font-bold">●</span>
-            </div>
-            <div>
-              <p className="font-medium text-white">Render</p>
-              <p className="text-xs text-slate-400">
-                {loading ? 'Loading...' : status?.render.connected ? 'Connected' : 'Not connected'}
-              </p>
-            </div>
-          </div>
-          {status?.render.connected ? (
-            <button
-              type="button"
-              onClick={() => disconnect('render')}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-rose-400 transition hover:bg-rose-500/10"
-            >
-              Disconnect
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={connectRender}
-              className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700"
-            >
-              Connect
-            </button>
-          )}
-        </div>
+              <h3 className="mt-4 font-display text-lg font-bold tracking-tight">{name}</h3>
+              <p className="mt-0.5 flex-1 text-sm text-muted">{blurb}</p>
 
-        {/* Railway */}
-        <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-600">
-              <span className="text-white font-bold">🚂</span>
+              <div className="mt-5">
+                {connected ? (
+                  <button type="button" onClick={() => disconnect(key)} className="btn btn-danger btn-sm -ml-2.5">
+                    Disconnect
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => connect(key)}
+                    disabled={loading && !status}
+                    className="btn btn-secondary btn-sm"
+                  >
+                    Connect {name}
+                  </button>
+                )}
+              </div>
             </div>
-            <div>
-              <p className="font-medium text-white">Railway</p>
-              <p className="text-xs text-slate-400">
-                {loading ? 'Loading...' : status?.railway.connected ? 'Connected' : 'Not connected'}
-              </p>
-            </div>
-          </div>
-          {status?.railway.connected ? (
-            <button
-              type="button"
-              onClick={() => disconnect('railway')}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-rose-400 transition hover:bg-rose-500/10"
-            >
-              Disconnect
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={connectRailway}
-              className="rounded-lg bg-purple-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-purple-700"
-            >
-              Connect
-            </button>
-          )}
-        </div>
+          )
+        })}
       </div>
     </div>
   )
