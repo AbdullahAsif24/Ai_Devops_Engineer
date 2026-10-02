@@ -3,34 +3,38 @@ import type { JobEvent, Stage } from '../types'
 import { STAGE_LABEL } from '../lib/stageMeta'
 import { extractHttpUrl } from '../lib/urls'
 
+// Stage colours come from the same tokens as the patch bay.
 const STAGE_COLOR: Record<Stage, string> = {
-  queued: 'text-slate-400',
-  cloning: 'text-sky-400',
-  analyzing: 'text-indigo-400',
-  generating: 'text-purple-400',
-  building: 'text-amber-400',
-  healing: 'text-orange-400',
-  deploying: 'text-emerald-400',
-  done: 'text-green-400',
-  failed: 'text-rose-400',
-  needs_review: 'text-yellow-400',
+  queued: 'text-faint',
+  cloning: 'text-c-clone',
+  analyzing: 'text-c-analyze',
+  generating: 'text-c-generate',
+  building: 'text-warn-text',
+  healing: 'text-warn-text',
+  deploying: 'text-c-deploy',
+  done: 'text-ok-text',
+  failed: 'text-bad-text',
+  needs_review: 'text-warn-text',
 }
 
-const GLYPH: Record<Stage, string> = {
-  queued: '•',
-  cloning: '●',
-  analyzing: '●',
-  generating: '●',
-  building: '●',
-  healing: '⚡',
-  deploying: '🚀',
-  done: '✓',
-  failed: '✗',
-  needs_review: '?',
+function isRunning(stage: Stage): boolean {
+  return stage === 'cloning' || stage === 'analyzing' || stage === 'generating' || stage === 'deploying'
 }
 
-/** Scrolling, styled log with per-event structured data surfaced inline. */
-export function JobLog({ events }: { events: JobEvent[] }) {
+function Glyph({ stage }: { stage: Stage }) {
+  if (stage === 'done') return <span aria-hidden="true">✓</span>
+  if (stage === 'failed') return <span aria-hidden="true">✗</span>
+  if (stage === 'needs_review') return <span aria-hidden="true">?</span>
+  return (
+    <span
+      aria-hidden="true"
+      className={`h-1.5 w-1.5 rounded-full bg-current ${isRunning(stage) ? 'animate-pulse' : ''}`}
+    />
+  )
+}
+
+/** Scrolling terminal log with per-event structured data surfaced inline. */
+export function JobLog({ events, live = false }: { events: JobEvent[]; live?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
 
   // Follow the stream: keep the newest line in view.
@@ -40,38 +44,56 @@ export function JobLog({ events }: { events: JobEvent[] }) {
   }, [events])
 
   return (
-    <div
-      ref={ref}
-      className="max-h-96 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950 py-1 text-xs"
-    >
-      {events.length === 0 ? (
-        <p className="px-3 py-2 text-slate-600">Waiting for events…</p>
-      ) : (
-        events.map((event, i) => <LogRow key={i} event={event} />)
-      )}
-    </div>
+    <section aria-label="Deployment logs" className="terminal overflow-hidden rounded-2xl">
+      <div className="flex items-center justify-between border-b border-line bg-raised/60 px-4 py-2.5 text-xs">
+        <div className="flex items-center gap-2 font-medium text-muted">
+          {live && (
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+            </span>
+          )}
+          {live ? 'Live logs' : 'Logs'}
+        </div>
+        <span className="tabular-nums text-faint">
+          {events.length} {events.length === 1 ? 'event' : 'events'}
+        </span>
+      </div>
+
+      <div
+        ref={ref}
+        role="log"
+        aria-live="polite"
+        className="max-h-96 min-h-40 overflow-y-auto py-1.5 font-mono text-[12.5px] leading-relaxed"
+      >
+        {events.length === 0 ? (
+          <p className="px-4 py-2 text-faint">
+            Waiting for events
+            <span className="animate-caret ml-1 inline-block h-3.5 w-1.5 translate-y-0.5 bg-faint" />
+          </p>
+        ) : (
+          events.map((event, i) => <LogRow key={i} event={event} />)
+        )}
+      </div>
+    </section>
   )
 }
 
 function LogRow({ event }: { event: JobEvent }) {
   const color = STAGE_COLOR[event.stage]
-  const isRunning = event.stage === 'cloning' || event.stage === 'analyzing' || 
-                   event.stage === 'generating' || event.stage === 'deploying'
   return (
-    <div className="flex gap-3 border-b border-slate-800/50 px-3 py-1.5 last:border-0">
-      <span className={`mt-px w-3 shrink-0 text-center ${color} ${isRunning ? 'animate-pulse' : ''}`}>
-        {GLYPH[event.stage]}
+    <div className="animate-log-in grid grid-cols-[6rem_1fr] gap-x-3 px-4 py-1 transition-colors hover:bg-raised/70 sm:grid-cols-[auto_6rem_1fr]">
+      <span className="hidden tabular-nums text-faint sm:block">
+        {typeof event.timestamp === 'string' ? event.timestamp.slice(11, 19) : ''}
       </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className={`shrink-0 text-[10px] font-semibold uppercase tracking-wide ${color}`}>
-            {STAGE_LABEL[event.stage]}
-          </span>
-          <span className="min-w-0 flex-1 text-slate-200">{event.message}</span>
-          <span className="shrink-0 text-[10px] text-slate-600">
-            {typeof event.timestamp === 'string' ? event.timestamp.slice(11, 19) : ''}
-          </span>
-        </div>
+      <span className={`flex items-center gap-2 font-medium ${color}`}>
+        <span className="flex w-3 justify-center">
+          <Glyph stage={event.stage} />
+        </span>
+        {STAGE_LABEL[event.stage]}
+      </span>
+      <div className="min-w-0">
+        <p className="break-words text-ink">{event.message}</p>
         <LogData event={event} />
       </div>
     </div>
@@ -90,7 +112,7 @@ function LogData({ event }: { event: JobEvent }) {
           href={url}
           target="_blank"
           rel="noreferrer"
-          className="mt-1 inline-block text-[11px] text-emerald-400 underline decoration-emerald-500/40 hover:text-emerald-300"
+          className="mt-1 inline-block break-all text-ok-text underline decoration-ok/40 underline-offset-2 transition-colors hover:text-ok"
         >
           {url}
         </a>
@@ -101,7 +123,7 @@ function LogData({ event }: { event: JobEvent }) {
   // Show detection information
   if (stage === 'analyzing' && message.includes('detected')) {
     return (
-      <p className="mt-1 rounded-md border border-indigo-500/30 bg-indigo-500/5 px-2 py-1 text-[11px] text-indigo-300">
+      <p className="mt-1 rounded-md border border-c-analyze/25 bg-accent-soft px-2 py-1 text-[12px] text-accent-text">
         {message}
       </p>
     )
@@ -110,7 +132,7 @@ function LogData({ event }: { event: JobEvent }) {
   // Show error messages
   if (stage === 'failed') {
     return (
-      <pre className="mt-1 overflow-x-auto rounded-md border border-rose-500/30 bg-rose-500/5 p-2 text-[11px] text-rose-300">
+      <pre className="mt-1 overflow-x-auto rounded-md border border-bad/25 bg-bad-soft p-2 text-[12px] text-bad-text">
         {message}
       </pre>
     )

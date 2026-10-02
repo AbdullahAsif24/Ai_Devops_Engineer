@@ -22,54 +22,84 @@ interface AuthContextValue {
   signOut: () => Promise<void>
 }
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL as string | undefined
+
+// GitHub sign-in goes through Supabase. The URL is public; set it per environment.
+const SUPABASE_URL =
+  (import.meta.env.VITE_SUPABASE_URL as string | undefined) || 'https://ioxdvfqvpexdkoidgjrl.supabase.co'
+// Optional. The anon key is public by design; with it, expired sessions refresh quietly
+// instead of signing the person out after an hour.
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
+
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
+
+function clearTokens() {
+  localStorage.removeItem('auth_token')
+  localStorage.removeItem('refresh_token')
+}
+
+/** Swap the stored refresh token for a fresh access token. Returns null if that isn't possible. */
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = localStorage.getItem('refresh_token')
+  if (!refreshToken || !SUPABASE_ANON_KEY) return null
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    if (typeof data.access_token !== 'string') return null
+    localStorage.setItem('auth_token', data.access_token)
+    if (typeof data.refresh_token === 'string') localStorage.setItem('refresh_token', data.refresh_token)
+    return data.access_token
+  } catch {
+    return null
+  }
+}
+
+function fetchSession(token: string) {
+  return fetch(`${API_BASE}/auth/session`, { headers: { Authorization: `Bearer ${token}` } })
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
-  const [configured, setConfiged] = useState(true)
+  const [configured, setConfigured] = useState(true)
 
   useEffect(() => {
-    // Check if backend is configured
-    const apiBase = import.meta.env.VITE_API_BASE_URL
-    if (!apiBase) {
-      setConfiged(false)
+    // No backend URL means the app runs in demo mode with no sign-in.
+    if (!API_BASE) {
+      setConfigured(false)
       setLoading(false)
       return
     }
-
-    // Restore session on load
-    loadSession()
+    void loadSession()
   }, [])
 
   const loadSession = async () => {
     try {
       const token = localStorage.getItem('auth_token')
-      console.log('Loading session, token exists:', !!token)
-      if (!token) {
-        setLoading(false)
+      if (!token) return
+
+      let res = await fetchSession(token)
+      if (!res.ok) {
+        // Expired or rejected: try one silent refresh before giving up.
+        const fresh = await refreshAccessToken()
+        if (fresh) res = await fetchSession(fresh)
+      }
+
+      if (!res.ok) {
+        clearTokens()
         return
       }
 
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/auth/session`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-
-      console.log('Session response status:', response.status)
-      if (response.ok) {
-        const userData = await response.json()
-        console.log('User data loaded:', userData)
-        console.log('User ID:', userData.user_id)
-        console.log('User object structure:', Object.keys(userData))
-        setUser(userData)
-        // Update the stored token with the one from the response (it might be refreshed)
-        localStorage.setItem('auth_token', userData.access_token)
-      } else {
-        console.error('Session validation failed:', response.status)
-        // Token invalid, clear it
-        localStorage.removeItem('auth_token')
+      const raw = await res.json()
+      // The backend may name the identifier `user_id`; the rest of the app reads `id`.
+      setUser({ ...raw, id: raw.id ?? raw.user_id ?? '' })
+      if (typeof raw.access_token === 'string' && raw.access_token) {
+        localStorage.setItem('auth_token', raw.access_token)
       }
     } catch (error) {
       console.error('Failed to load session:', error)
@@ -79,46 +109,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signInWithGitHub = async () => {
-    try {
-      // Use Supabase directly for GitHub OAuth
-      const supabaseUrl = 'https://ioxdvfqvpexdkoidgjrl.supabase.co'
-      const redirectUrl = `${window.location.origin}`
-      const authUrl = `${supabaseUrl}/auth/v1/authorize?provider=github&redirect_to=${encodeURIComponent(redirectUrl)}`
-      
-      console.log('Redirecting to Supabase OAuth:', authUrl)
-      window.location.href = authUrl
-    } catch (error) {
-      console.error('GitHub sign-in failed:', error)
-      throw error
-    }
+    const redirectUrl = window.location.origin
+    window.location.href = `${SUPABASE_URL}/auth/v1/authorize?provider=github&redirect_to=${encodeURIComponent(redirectUrl)}`
   }
 
   const signOut = async () => {
     try {
       const token = localStorage.getItem('auth_token')
       if (token) {
-        await fetch(`${import.meta.env.VITE_API_BASE_URL}/auth/logout`, {
+        await fetch(`${API_BASE}/auth/logout`, {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { Authorization: `Bearer ${token}` },
         })
       }
     } catch (error) {
       console.error('Logout failed:', error)
     } finally {
-      localStorage.removeItem('auth_token')
+      clearTokens()
       setUser(null)
     }
   }
 
-  const value: AuthContextValue = {
-    user,
-    loading,
-    configured,
-    signInWithGitHub,
-    signOut,
-  }
+  const value: AuthContextValue = { user, loading, configured, signInWithGitHub, signOut }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
@@ -130,29 +142,17 @@ export function useAuth() {
   return ctx
 }
 
-// Helper function to handle OAuth callback
+/** Exchange an authorization code for a session through the backend. */
 export async function handleOAuthCallback(code: string): Promise<User> {
-  console.log('Calling backend OAuth callback with code')
-  const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/auth/github/callback`, {
+  const response = await fetch(`${API_BASE}/auth/github/callback`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code }),
   })
 
-  console.log('Backend OAuth callback response status:', response.status)
-  if (!response.ok) {
-    const errorText = await response.text()
-    console.error('OAuth callback failed:', errorText)
-    throw new Error('OAuth callback failed')
-  }
+  if (!response.ok) throw new Error('OAuth callback failed')
 
-  const userData = await response.json()
-  console.log('User data from OAuth callback:', userData)
-
-  // Store the access token
-  localStorage.setItem('auth_token', userData.access_token)
-
-  return userData
+  const raw = await response.json()
+  if (typeof raw.access_token === 'string') localStorage.setItem('auth_token', raw.access_token)
+  return { ...raw, id: raw.id ?? raw.user_id ?? '' }
 }
