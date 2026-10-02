@@ -8,6 +8,9 @@ import { StatusBadge } from './components/StatusBadge'
 import { History } from './components/History'
 import { OAuthManager } from './components/OAuthManager'
 import { OAuthCallback } from './components/OAuthCallback'
+import { AutoDeployManager } from './components/AutoDeployManager'
+import { SecretsManager } from './components/SecretsManager'
+import { CustomDomainManager } from './components/CustomDomainManager'
 import { AlertIcon, ArrowLeftIcon, ArrowUpRightIcon, BrandMark, CheckIcon, GitHubIcon, InfoIcon, Spinner } from './components/icons'
 import { useAuth } from './auth/AuthContext'
 import { useJobStream } from './hooks/useJobStream'
@@ -16,11 +19,14 @@ import { getJob, USE_MOCK } from './lib/api'
 import { hostOf, repoName } from './lib/format'
 import type { Job } from './types'
 
-type View = 'new' | 'history' | 'settings'
+type View = 'new' | 'history' | 'auto-deploy' | 'secrets' | 'domains' | 'settings'
 
 const TABS: { key: View; label: string }[] = [
-  { key: 'new', label: 'New deploy' },
+  { key: 'new', label: 'Deploy' },
   { key: 'history', label: 'History' },
+  { key: 'auto-deploy', label: 'Auto-Deploy' },
+  { key: 'secrets', label: 'Secrets' },
+  { key: 'domains', label: 'Domains' },
   { key: 'settings', label: 'Settings' },
 ]
 
@@ -30,8 +36,11 @@ function App() {
     // After connecting Vercel or Render the callback page sends people back to Settings.
     const next = sessionStorage.getItem('open_view')
     sessionStorage.removeItem('open_view')
-    return next === 'settings' || next === 'history' ? next : 'new'
+    return next && ['settings', 'history', 'auto-deploy', 'secrets', 'domains'].includes(next)
+      ? (next as View)
+      : 'new'
   })
+
   const [activeJob, setActiveJob] = useState<Job | null>(null)
   const headerRef = useRef<HTMLElement>(null)
   usePointerFx()
@@ -102,7 +111,7 @@ function App() {
           <TabNav
             view={view}
             onChange={switchView}
-            className="col-span-2 row-start-2 md:col-span-1 md:col-start-2 md:row-start-1 md:w-80 md:justify-self-center"
+            className="col-span-2 row-start-2 md:col-span-1 md:col-start-2 md:row-start-1 md:w-[580px] md:justify-self-center"
           />
 
           <div className="col-start-2 row-start-1 flex items-center justify-end gap-1.5 md:col-start-3">
@@ -125,6 +134,12 @@ function App() {
                 <ActiveJob job={activeJob} onReset={() => setActiveJob(null)} />
               ) : view === 'history' ? (
                 <History onOpen={openJob} onNewDeploy={() => switchView('new')} />
+              ) : view === 'auto-deploy' ? (
+                <AutoDeployManager />
+              ) : view === 'secrets' ? (
+                <SecretsManager />
+              ) : view === 'domains' ? (
+                <CustomDomainManager />
               ) : view === 'settings' ? (
                 <OAuthManager />
               ) : (
@@ -161,16 +176,20 @@ function TabNav({
   className?: string
 }) {
   const index = TABS.findIndex((t) => t.key === view)
+  const count = TABS.length
 
   return (
     <nav
       aria-label="Sections"
-      className={`relative grid grid-cols-3 rounded-xl border border-line bg-raised p-1 text-sm ${className}`}
+      className={`relative grid grid-cols-6 rounded-xl border border-line bg-raised p-1 text-xs sm:text-sm ${className}`}
     >
       <span
         aria-hidden="true"
-        className="absolute inset-y-1 left-1 w-[calc((100%-0.5rem)/3)] tab-pill rounded-lg transition-transform duration-300 ease-[cubic-bezier(0.3,0.9,0.3,1.1)]"
-        style={{ transform: `translateX(${index * 100}%)` }}
+        className="absolute inset-y-1 left-1 tab-pill rounded-lg transition-transform duration-300 ease-[cubic-bezier(0.3,0.9,0.3,1.1)]"
+        style={{
+          width: `calc((100% - 0.5rem) / ${count})`,
+          transform: `translateX(${index * 100}%)`,
+        }}
       />
       {TABS.map((tab) => (
         <TabButton key={tab.key} active={view === tab.key} onClick={() => onChange(tab.key)}>
@@ -180,6 +199,7 @@ function TabNav({
     </nav>
   )
 }
+
 
 function TabButton({
   active,

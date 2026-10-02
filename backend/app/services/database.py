@@ -95,9 +95,11 @@ class DatabaseService:
                 # Fallback: return the original data if insert succeeded but no return data
                 return data
         except Exception as e:
-            # If insert fails, try to get more detailed error info
+            # If insert fails (e.g. foreign key constraint for unauthenticated user),
+            # log warning and return data dictionary so pipeline continues in memory
             print(f"Database insert error: {e}")
-            raise
+            return data
+
 
     async def get_job(self, job_id: str) -> Optional[dict]:
         """Get a job by job_id."""

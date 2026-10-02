@@ -143,3 +143,181 @@ export interface JobStreamHandlers {
 export interface JobStreamController {
   close: () => void
 }
+
+// ── Auto-deploy on Push ──────────────────────────────────────────────────
+export interface AutoDeployConfig {
+  id: string
+  user_id: string
+  repo_url: string
+  branch: string
+  is_active: boolean
+  webhook_secret: string
+  webhook_url: string
+  auto_rollback: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateAutoDeployRequest {
+  repo_url: string
+  branch?: string
+  auto_rollback?: boolean
+}
+
+export interface UpdateAutoDeployRequest {
+  branch?: string
+  is_active?: boolean
+  auto_rollback?: boolean
+}
+
+export interface WebhookEventRecord {
+  id: string
+  config_id?: string
+  user_id: string
+  repo_url: string
+  branch: string
+  commit_sha: string
+  commit_message: string
+  committer: string
+  status: 'triggered' | 'skipped' | 'failed'
+  job_id?: string
+  error_message?: string
+  created_at: string
+}
+
+export interface TestPushRequest {
+  config_id?: string
+  repo_url?: string
+  branch?: string
+  commit_message?: string
+  committer?: string
+}
+
+// ── Secrets Management ───────────────────────────────────────────────────
+export type SecretEnvironment = 'production' | 'staging' | 'development'
+export type SecretRole = 'Admin' | 'Developer' | 'Viewer'
+
+export interface SecretItem {
+  id: string
+  user_id: string
+  key: string
+  environment: SecretEnvironment
+  masked_value: string
+  version: number
+  rotation_interval_days?: number
+  last_rotated_at: string
+  expires_at?: string | null
+  status: 'active' | 'expiring_soon' | 'expired' | 'rotated'
+  shared_roles: SecretRole[]
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateSecretRequest {
+  key: string
+  value: string
+  environment?: SecretEnvironment
+  rotation_interval_days?: number
+  shared_roles?: SecretRole[]
+}
+
+export interface UpdateSecretRequest {
+  key?: string
+  environment?: SecretEnvironment
+  rotation_interval_days?: number
+  shared_roles?: SecretRole[]
+}
+
+export interface RotateSecretRequest {
+  new_value?: string
+  auto_generate?: boolean
+}
+
+export interface RevealSecretResponse {
+  id: string
+  key: string
+  environment: SecretEnvironment
+  plain_value: string
+  revealed_at: string
+}
+
+export interface SecretAuditLog {
+  id: string
+  user_id: string
+  secret_id?: string
+  secret_key: string
+  environment: string
+  action: 'create' | 'reveal' | 'rotate' | 'update' | 'delete' | 'share'
+  actor: string
+  ip_address: string
+  details: string
+  timestamp: string
+}
+
+export interface TeamMember {
+  id: string
+  user_id: string
+  email: string
+  name: string
+  role: SecretRole
+  status: 'active' | 'pending'
+  joined_at: string
+}
+
+export interface InviteTeamMemberRequest {
+  email: string
+  name: string
+  role: SecretRole
+}
+
+// ── Custom Domain Management ─────────────────────────────────────────────
+export type DomainStatus = 'active' | 'pending_dns' | 'verifying' | 'ssl_issuing' | 'failed'
+export type SSLStatus = 'issued' | 'pending' | 'renewing' | 'failed'
+export type HealthStatus = 'healthy' | 'degraded' | 'down' | 'pending'
+
+export interface DNSRecord {
+  type: 'CNAME' | 'A'
+  host: string
+  value: string
+  ttl: number
+  verified: boolean
+}
+
+export interface CustomDomainItem {
+  id: string
+  user_id: string
+  domain: string
+  job_id?: string
+  target_url: string
+  status: DomainStatus
+  dns_record: DNSRecord
+  dns_verified: boolean
+  ssl_status: SSLStatus
+  ssl_issuer: string
+  ssl_expires_at?: string | null
+  auto_ssl_renew: boolean
+  health_status: HealthStatus
+  latency_ms?: number
+  uptime_percent: number
+  http_status_code?: number
+  last_checked_at?: string | null
+  created_at: string
+}
+
+export interface CreateDomainRequest {
+  domain: string
+  job_id?: string
+  target_url?: string
+}
+
+export interface DomainHealthCheckResponse {
+  domain_id: string
+  domain: string
+  health_status: HealthStatus
+  latency_ms: number
+  http_status_code: number
+  ssl_status: SSLStatus
+  ssl_expires_days: number
+  checked_at: string
+}
+

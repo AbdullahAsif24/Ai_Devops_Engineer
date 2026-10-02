@@ -193,32 +193,16 @@ async def _run_job(job_id: str, user_id: str) -> None:
                     return
 
                 await db.update_job_result(job_id, result.model_dump())
+                # Write Dockerfile to local snapshot (for logging/UI display).
                 dockerfile_path = os.path.join(snapshot.root, "Dockerfile")
                 if not os.path.exists(dockerfile_path):
                     with open(dockerfile_path, "w", encoding="utf-8") as handle:
                         handle.write(result.dockerfile_content)
-
-                # Commit Dockerfile to GitHub for Render deployment
-                await _log(job_id, JobStage.DEPLOYING, "Committing Dockerfile to GitHub repository")
-                try:
-                    github_token = await get_user_github_token(user_id)
-                    if github_token:
-                        await _commit_dockerfile_to_github(
-                            snapshot.root, job.repo_url, github_token, job_id
-                        )
-                        await _log(job_id, JobStage.DEPLOYING, "Dockerfile committed to GitHub")
-                    else:
-                        await _log(
-                            job_id,
-                            JobStage.DEPLOYING,
-                            "No GitHub token available - Dockerfile not committed to repo. Render deployment may fail.",
-                        )
-                except Exception as e:
-                    await _log(
-                        job_id,
-                        JobStage.DEPLOYING,
-                        f"Failed to commit Dockerfile to GitHub: {str(e)}. Render deployment may fail.",
-                    )
+                await _log(
+                    job_id,
+                    JobStage.GENERATING,
+                    "Dockerfile generated successfully (deploying via native buildpack — no GitHub commit needed)",
+                )
 
                 await _log(job_id, JobStage.DEPLOYING, "Deploying to Render")
                 try:
@@ -255,6 +239,8 @@ async def _run_job(job_id: str, user_id: str) -> None:
                         access_token=render_token,
                         env_vars=env_vars,
                         repo_url=job.repo_url,
+                        detected_framework=detection.detected_framework,
+                        start_command=result.start_command,
                     )
                     await db.update_job_deployment(job_id, deployment_result.model_dump())
                     await _log(
@@ -269,7 +255,7 @@ async def _run_job(job_id: str, user_id: str) -> None:
                     return
 
             # Try Railway deployment if Render is not available or user prefers Railway
-            elif detection.deployment_type == DeploymentType.BACKEND:
+            elif detection.deployment_type == DeploymentType.CONTAINER:
                 await _log(job_id, JobStage.DEPLOYING, "Deploying to Railway")
                 try:
                     # Try to get user's Railway token
